@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
+import { sslFor } from "./client";
 
 /**
  * Apply every SQL file in src/migrations, in filename order, once.
@@ -22,13 +23,13 @@ if (existsSync(envFile)) {
 
 const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 if (!url) {
-  throw new Error("Set DIRECT_URL to the Supabase direct connection string.");
+  throw new Error("Set DIRECT_URL to local Postgres (127.0.0.1:5432) or the Supabase pooler URI (port 6543). The direct db.<ref>.supabase.co host is IPv6-only.");
 }
 
 const sql = postgres(url, {
   prepare: false,
   max: 1,
-  ssl: url.includes("localhost") ? undefined : "require",
+  ssl: sslFor(url),
 });
 
 const dir = fileURLToPath(new URL("./migrations/", import.meta.url));

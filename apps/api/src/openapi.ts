@@ -195,6 +195,14 @@ export const openApiDocument = {
     "/v1/conversations": {
       get: { tags: ["Chat"], summary: "List chats", responses: { "200": { description: "Newest first." } } },
     },
+    "/v1/conversations/{id}": {
+      delete: {
+        tags: ["Chat"],
+        summary: "Delete one chat",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "The chat and its messages are gone." }, "404": { description: "Not in this workspace." } },
+      },
+    },
     "/v1/conversations/{id}/messages": {
       get: {
         tags: ["Chat"],

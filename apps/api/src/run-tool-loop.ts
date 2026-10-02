@@ -7,6 +7,8 @@ const SYSTEM = [
   "If a tool does not return a fact, say you do not have it. Do not invent dates, statuses, or message contents.",
   "When the user writes in Hindi, answer in Hindi.",
   "For a Patna High Court question, call patna-hc first. Then call hindi-render with sourceText from that result only.",
+  "Use profile then Gmail when the user asks to email an intro. Use jobs.search for a role. Use notes or manuscript for saved text. Use Canva when the user asks for a design.",
+  "Format the answer with short headings and lists. When a tool returns rows, show them as a Markdown table.",
 ].join(" ");
 
 /**
@@ -80,7 +82,7 @@ export async function runToolLoop(options: {
 export const modelProviders = [
   { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", defaultModel: "gpt-4o-mini" },
   { id: "gemini", label: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", defaultModel: "gemini-2.0-flash" },
-  { id: "groq", label: "Groq", baseUrl: "https://api.groq.com/openai/v1", defaultModel: "llama-3.3-70b-versatile" },
+  { id: "groq", label: "Groq", baseUrl: "https://api.groq.com/openai/v1", defaultModel: "openai/gpt-oss-20b" },
   { id: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", defaultModel: "openai/gpt-4o-mini" },
   { id: "compatible", label: "Custom", baseUrl: "", defaultModel: "" },
 ];

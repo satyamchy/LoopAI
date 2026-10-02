@@ -4,24 +4,25 @@ import { masterKeyFromBase64 } from "@loopai/vault";
 import { echo, toolkits } from "@loopai/toolkits";
 import { createApp } from "./app";
 import { createMemoryStore } from "./store";
+import { withSession } from "./with-session";
 
 const master = masterKeyFromBase64(randomBytes(32).toString("base64"));
 
-function testApp(fetchImpl?: typeof fetch) {
+async function testApp(fetchImpl?: typeof fetch) {
   const store = createMemoryStore(master);
-  const app = createApp({
+  const app = await withSession(createApp({
     store,
     toolkits,
     publicUrl: "http://localhost:8787",
     webOrigin: "http://localhost:5173",
     fetchImpl,
-  });
+  }));
   return { app, store };
 }
 
 describe("execute", () => {
   test("stores an echo secret and does not return it", async () => {
-    const { app, store } = testApp();
+    const { app, store } = await testApp();
     const secret = "echo-secret-value";
     const connected = await app.request("/v1/connections", {
       method: "POST",
@@ -60,7 +61,7 @@ describe("execute", () => {
       })),
     };
     const store = createMemoryStore(master);
-    const app = createApp({ store, toolkits: [counting], publicUrl: "http://localhost:8787", webOrigin: "http://localhost:5173" });
+    const app = await withSession(createApp({ store, toolkits: [counting], publicUrl: "http://localhost:8787", webOrigin: "http://localhost:5173" }));
     const connected = await (await app.request("/v1/connections", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -99,7 +100,7 @@ describe("chat", () => {
       }
       return Response.json({ choices: [{ message: { role: "assistant", content: "done" } }] });
     };
-    const { app } = testApp(fetchImpl);
+    const { app } = await testApp(fetchImpl);
     const account = await (await app.request("/v1/connections", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -123,7 +124,7 @@ describe("chat", () => {
 
 describe("agent keys", () => {
   test("shows the raw key once and rejects MCP without it", async () => {
-    const { app } = testApp();
+    const { app } = await testApp();
     const created = await (await app.request("/v1/agent-keys", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Cursor" }) })).json();
     expect(created.key).toMatch(/^lai_/);
     const listed = await (await app.request("/v1/agent-keys")).json();
@@ -151,9 +152,24 @@ describe("agent keys", () => {
   });
 });
 
+describe("chats", () => {
+  test("deletes a chat and its messages", async () => {
+    const { app, store } = await testApp();
+    const workspace = await store.ensureWorkspace();
+    const created = await store.createConversation(workspace.id, "Old chat");
+    await store.insertMessage(created.id, "user", "hello");
+    const removed = await app.request(`/v1/conversations/${created.id}`, { method: "DELETE" });
+    expect(removed.status).toBe(200);
+    const listed = await (await app.request("/v1/conversations")).json();
+    expect(listed.conversations).toEqual([]);
+    const missing = await app.request(`/v1/conversations/${created.id}`, { method: "DELETE" });
+    expect(missing.status).toBe(404);
+  });
+});
+
 describe("docs", () => {
   test("serves the OpenAPI document", async () => {
-    const { app } = testApp();
+    const { app } = await testApp();
     const spec = await app.request("/openapi.json");
     expect(spec.status).toBe(200);
     const body = await spec.json();

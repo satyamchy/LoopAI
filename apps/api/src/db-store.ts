@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { createHash, randomUUID } from "node:crypto";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { AccountScope } from "@loopai/core";
 import { createDb, schema } from "@loopai/db";
 import { decryptJson, encryptJson, newDataKey, unwrapKey, wrapKey } from "@loopai/vault";
@@ -31,6 +31,9 @@ export function createSupabaseStore(databaseUrl: string, masterKey: Buffer): Sto
       await db.insert(schema.workspaceKeys).values({ workspaceId: id, wrappedDek: wrapKey(dek, masterKey) });
       cached = { id, name: "My workspace", dek };
       return { id, name: "My workspace" };
+    },
+    async ping() {
+      await db.execute(sql`select 1`);
     },
     async encrypt(value) {
       await store.ensureWorkspace();
@@ -184,7 +187,114 @@ export function createSupabaseStore(databaseUrl: string, masterKey: Buffer): Sto
     async insertMessage(conversationId, role, content) {
       await db.insert(schema.messages).values({ id: randomUUID(), conversationId, role, content });
     },
+    async deleteConversation(id) {
+      await db.delete(schema.messages).where(eq(schema.messages.conversationId, id));
+      await db.delete(schema.conversations).where(eq(schema.conversations.id, id));
+    },
+    async createUser(input) {
+      const workspace = await store.ensureWorkspace();
+      const id = randomUUID();
+      await db.insert(schema.users).values({ id, ...input });
+      await db.insert(schema.workspaceMembers).values({ workspaceId: workspace.id, userId: id, role: "owner" });
+      return { userId: id, workspaceId: workspace.id, username: input.username, displayName: input.displayName };
+    },
+    async findUserByUsername(username) {
+      const rows = await db.select().from(schema.users).where(eq(schema.users.username, username)).limit(1);
+      const row = rows[0];
+      if (!row?.username || !row.displayName) return null;
+      const member = await membership(row.id);
+      if (!member) return null;
+      return { userId: row.id, workspaceId: member, username: row.username, displayName: row.displayName, passwordHash: row.passwordHash };
+    },
+    async findUserByGoogleSub(googleSub) {
+      const rows = await db.select().from(schema.users).where(eq(schema.users.googleSub, googleSub)).limit(1);
+      const row = rows[0];
+      if (!row?.username || !row.displayName) return null;
+      const member = await membership(row.id);
+      if (!member) return null;
+      return { userId: row.id, workspaceId: member, username: row.username, displayName: row.displayName };
+    },
+    async createSession(userId) {
+      const rawToken = randomUUID() + randomUUID();
+      await db.insert(schema.sessions).values({
+        id: randomUUID(),
+        userId,
+        tokenHash: createHash("sha256").update(rawToken).digest("hex"),
+        expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      });
+      return { rawToken };
+    },
+    async findSession(tokenHash) {
+      const rows = await db.select().from(schema.sessions).where(eq(schema.sessions.tokenHash, tokenHash)).limit(1);
+      const session = rows[0];
+      if (!session || session.expiresAt.getTime() <= Date.now()) return null;
+      const users = await db.select().from(schema.users).where(eq(schema.users.id, session.userId)).limit(1);
+      const row = users[0];
+      if (!row?.username || !row.displayName) return null;
+      const member = await membership(row.id);
+      if (!member) return null;
+      return { userId: row.id, workspaceId: member, username: row.username, displayName: row.displayName };
+    },
+    async deleteSession(tokenHash) {
+      await db.delete(schema.sessions).where(eq(schema.sessions.tokenHash, tokenHash));
+    },
+    async getExecution(workspaceId, id) {
+      const rows = await db
+        .select()
+        .from(schema.toolExecutions)
+        .where(and(eq(schema.toolExecutions.workspaceId, workspaceId), eq(schema.toolExecutions.id, id)))
+        .limit(1);
+      const row = rows[0];
+      return row ? { ...toExecution(row), toolkitSlug: row.toolkitSlug, action: row.action } : null;
+    },
+    async insertNote(input) {
+      const id = randomUUID();
+      const rows = await db.insert(schema.notes).values({ id, ...input }).returning();
+      return toNote(rows[0]);
+    },
+    async searchNotes(workspaceId, kind, query) {
+      const rows = await db
+        .select()
+        .from(schema.notes)
+        .where(and(eq(schema.notes.workspaceId, workspaceId), eq(schema.notes.kind, kind)))
+        .orderBy(desc(schema.notes.createdAt))
+        .limit(100);
+      const needle = query.trim().toLowerCase();
+      return rows
+        .filter((row) => `${row.title}\n${row.body}`.toLowerCase().includes(needle))
+        .slice(0, 20)
+        .map(toNote);
+    },
+    async listNotes(workspaceId, kind) {
+      const rows = await db
+        .select()
+        .from(schema.notes)
+        .where(and(eq(schema.notes.workspaceId, workspaceId), eq(schema.notes.kind, kind)))
+        .orderBy(desc(schema.notes.createdAt))
+        .limit(100);
+      return rows.map(toNote);
+    },
+    async getNote(workspaceId, id) {
+      const rows = await db
+        .select()
+        .from(schema.notes)
+        .where(and(eq(schema.notes.workspaceId, workspaceId), eq(schema.notes.id, id)))
+        .limit(1);
+      return rows[0] ? toNote(rows[0]) : null;
+    },
+    async appendNote(workspaceId, id, text) {
+      const current = await store.getNote(workspaceId, id);
+      if (!current) return null;
+      const body = `${current.body}\n\n${text}`;
+      await db.update(schema.notes).set({ body }).where(and(eq(schema.notes.id, id), eq(schema.notes.workspaceId, workspaceId)));
+      return { ...current, body };
+    },
   };
+
+  async function membership(userId: string): Promise<string | null> {
+    const rows = await db.select().from(schema.workspaceMembers).where(eq(schema.workspaceMembers.userId, userId)).limit(1);
+    return rows[0]?.workspaceId ?? null;
+  }
 
   return store;
 }
@@ -204,6 +314,10 @@ function toPublic(row: typeof schema.connectedAccounts.$inferSelect): PublicAcco
 
 function toRecord(row: typeof schema.connectedAccounts.$inferSelect): AccountRecord {
   return { ...toPublic(row), encryptedCredentials: row.encryptedCredentials };
+}
+
+function toNote(row: typeof schema.notes.$inferSelect) {
+  return { id: row.id, kind: row.kind, title: row.title, body: row.body, createdAt: row.createdAt.toISOString() };
 }
 
 function toExecution(row: typeof schema.toolExecutions.$inferSelect): ExecutionRecord {

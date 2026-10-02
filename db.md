@@ -1,6 +1,15 @@
 # Database
 
-Postgres holds the workspace, encrypted credentials, chat history, and an audit row for each tool call. The schema is `packages/db/src/migrations/0001_init.sql`. Drizzle maps the tables the API uses in `packages/db/src/schema.ts`.
+Postgres holds the workspace, logins, encrypted credentials, notes, chat history, and an audit row for each tool call. SQL is applied in order:
+
+| File | What it adds |
+| --- | --- |
+| `0001_init.sql` | Workspace, accounts, chat, users, sessions. |
+| `0002_login.sql` | `username`, `password_hash`, `display_name`, `google_sub` on `users`. |
+| `0003_rls.sql` | Row level security on the public tables, with no anon policy. |
+| `0004_notes.sql` | `notes` for saved notes and manuscript chapters. RLS on, no anon policy. |
+
+Drizzle maps the tables the API uses in `packages/db/src/schema.ts`.
 
 Without `DATABASE_URL`, the API keeps the same records in memory. Nothing is written to Postgres until you set the URLs below and run `corepack pnpm db:migrate`.
 
@@ -23,7 +32,7 @@ Also set `VAULT_MASTER_KEY` before starting the API with `DATABASE_URL`. The API
 Changing `schema.ts` does not change Postgres. Drizzle uses that file as the TypeScript map of tables that already exist. A new or renamed column needs a new SQL file and a migrate run:
 
 1. Edit `packages/db/src/schema.ts` so the API and the database description match.
-2. Add `packages/db/src/migrations/0002_short_name.sql` with the `alter table` (or the next number). Do not edit `0001_init.sql` after it has been applied.
+2. Add `packages/db/src/migrations/0005_short_name.sql` with the `alter table` (or the next number). Do not edit a file after it has been applied.
 3. From the repo root, with `DIRECT_URL` set, run `corepack pnpm db:migrate`.
 4. Restart the API.
 
@@ -48,8 +57,9 @@ The raw token is never a column. The API encrypts it with the workspace data key
 | Telegram bot token, WhatsApp access token and phone number id, Echo secret | `connected_accounts` | `encrypted_credentials` | Ciphertext. Field names match the app (`botToken`, `accessToken`, `phoneNumberId`, or `secret`). |
 | Model API key (OpenAI, Gemini, Groq, OpenRouter, Custom) | `llm_connections` | `encrypted_api_key` | Ciphertext. Inside: `apiKey`. |
 | OAuth code verifier, kept only until the callback | `oauth_states` | `code_verifier_encrypted` | Ciphertext. Deleted when the callback is consumed. |
-| Agent key for Cursor or Claude (`lai_...`) | `agent_keys` | `key_hash` | SHA-256 hash. The raw key is shown once and is not stored. `key_prefix` is the visible start of the key. |
-| Later login session | `sessions` | `token_hash` | Hash. This table is unused until login exists. |
+| Agent key for Cursor, Claude, or ChatGPT (`lai_...`) | `agent_keys` | `key_hash` | SHA-256 hash. The raw key is shown once and is not stored. `key_prefix` is the visible start of the key. |
+| Sign-in session | `sessions` | `token_hash` | Hash of the `loopai_session` cookie. The raw token is not stored. |
+| Password | `users` | `password_hash` | Scrypt hash. Not the password. |
 
 `VAULT_MASTER_KEY` is not in the database. It stays in `apps/api/.env`. It unwraps `workspace_keys.wrapped_dek`. That data key decrypts `encrypted_credentials` and `encrypted_api_key`. The browser never receives either key.
 
@@ -64,7 +74,7 @@ One row per workspace. Today the API creates a single row named "My workspace".
 | Column | Need |
 | --- | --- |
 | `id` | Primary key. Every other workspace-owned row points here. |
-| `name` | Label shown in the sidebar. |
+| `name` | Stored label. The sidebar shows the signed-in display name. The address uses `<username>_workspace`, which is not this column. |
 | `created_at` | When the workspace was created. |
 
 ### `workspace_keys`
@@ -123,7 +133,7 @@ A model the chat page can call. The key is separate from app tokens.
 
 ### `agent_keys`
 
-Keys for an outside agent (Cursor, Claude) calling MCP or `/v1/tools/execute`.
+Keys for an outside agent (Cursor, Claude, or ChatGPT on this computer) calling MCP or `/v1/tools/execute`.
 
 | Column | Need |
 | --- | --- |
@@ -179,32 +189,49 @@ Audit row for one tool call. A repeated `idempotency_key` returns this row inste
 
 ### `users`
 
-Reserved for login. The API does not read or write this table yet.
+One person who can sign in. A new user joins the single workspace this process opens.
 
 | Column | Need |
 | --- | --- |
 | `id` | Primary key. |
-| `email` | Login identity. Unique. |
+| `email` | Optional. Set by Google sign-in. Unique when present. |
+| `username` | Sign-in name. Unique. 3 to 32 letters, numbers, dots, or dashes. |
+| `password_hash` | Scrypt hash. Null for a Google-only account. |
+| `display_name` | Shown in the sidebar. |
+| `google_sub` | Google account id. Unique when present. |
 | `created_at` | When the user was created. |
 
 ### `sessions`
 
-Reserved for login. Unused.
+The browser session. Logout deletes the row.
 
 | Column | Need |
 | --- | --- |
 | `id` | Primary key. |
 | `user_id` | Foreign key to `users.id`. |
-| `token_hash` | Hash of a future session cookie. The raw session token is not stored. |
+| `token_hash` | Hash of the `loopai_session` cookie. The raw token is not stored. |
 | `expires_at` | When the session stops working. |
 | `created_at` | When the session was created. |
 
 ### `workspace_members`
 
-Reserved for inviting people into a workspace. Unused.
+Joins a user to a workspace. Sign-in writes one row. Invites are not a screen yet.
 
 | Column | Need |
 | --- | --- |
 | `workspace_id` | Workspace. Part of the primary key. |
 | `user_id` | User. Part of the primary key. |
 | `role` | What that person may do in the workspace. |
+
+### `notes`
+
+A saved note (`kind` `note`) or a manuscript chapter (`kind` `chapter`). Row level security is on and there is no policy, so the Supabase anon role cannot read it. The API connects as `postgres`, which bypasses that.
+
+| Column | Need |
+| --- | --- |
+| `id` | Primary key. |
+| `workspace_id` | Which workspace owns the text. |
+| `kind` | `note` or `chapter`. |
+| `title` | Shown when the note or chapter is found. |
+| `body` | The text. |
+| `created_at` | When it was saved. |

@@ -5,7 +5,9 @@ import { cors } from "hono/cors";
 import type { AccountScope, Toolkit } from "@loopai/core";
 import { secretStrings } from "@loopai/core";
 import { authorizeUrl, exchangeCode, listCards } from "@loopai/toolkits";
+import { mountAuth, userFromCookie } from "./auth-routes";
 import { performExecute } from "./execute-request";
+import { buildExport, tableFromResult, type ExportFormat } from "./export-file";
 import { hashKey, newAgentKey } from "./keys";
 import { handleMcp } from "./mcp";
 import { openApiDocument } from "./openapi";
@@ -24,7 +26,8 @@ export type AppDeps = {
 export function createApp(deps: AppDeps) {
   const app = new Hono();
   const fetchImpl = deps.fetchImpl ?? fetch;
-  app.use("*", cors({ origin: deps.webOrigin, allowHeaders: ["content-type", "authorization", "idempotency-key"] }));
+  app.use("*", cors({ origin: deps.webOrigin, allowHeaders: ["content-type", "authorization", "idempotency-key"], credentials: true }));
+  mountAuth(app, deps);
 
   app.get("/openapi.json", (c) => c.json(openApiDocument));
   app.get("/docs", swaggerUI({ url: "/openapi.json" }));
@@ -94,7 +97,7 @@ export function createApp(deps: AppDeps) {
     });
     const url = authorizeUrl(toolkit.oauth, {
       clientId,
-      redirectUri: `${deps.publicUrl}/v1/oauth/callback`,
+      redirectUri: oauthRedirect(deps.publicUrl, toolkit),
       state,
       codeVerifier,
     });
@@ -116,7 +119,7 @@ export function createApp(deps: AppDeps) {
       if (!verifier) return failed(toolkit.slug);
       const tokens = await exchangeCode(toolkit.oauth, {
         code,
-        redirectUri: `${deps.publicUrl}/v1/oauth/callback`,
+        redirectUri: oauthRedirect(deps.publicUrl, toolkit),
         codeVerifier: verifier,
       });
       const encryptedCredentials = await deps.store.encrypt({
@@ -181,6 +184,15 @@ export function createApp(deps: AppDeps) {
     return c.json({ messages: await deps.store.listMessages(conversation.id) });
   });
 
+  app.delete("/v1/conversations/:id", async (c) => {
+    const workspace = await workspaceFrom(c, deps.store);
+    if (workspace instanceof Response) return workspace;
+    const conversation = await deps.store.getConversation(c.req.param("id"));
+    if (!conversation || conversation.workspaceId !== workspace.id) return c.json({ error: "Conversation not found." }, 404);
+    await deps.store.deleteConversation(conversation.id);
+    return c.json({ ok: true });
+  });
+
   app.get("/v1/llm-connections", async (c) => {
     const workspace = await workspaceFrom(c, deps.store);
     if (workspace instanceof Response) return workspace;
@@ -228,6 +240,7 @@ export function createApp(deps: AppDeps) {
       if (row) secrets.push(...secretStrings(await deps.store.decrypt(row.encryptedCredentials)));
     }
     const bindings = bindTools(deps.toolkits, accounts);
+    const downloads: { id: string; tool: string; tabular: boolean }[] = [];
     const requested = typeof body.conversationId === "string" && body.conversationId ? body.conversationId : null;
     const conversationId = requested ?? (await deps.store.createConversation(workspace.id, body.message.slice(0, 80))).id;
     const conversation = await deps.store.getConversation(conversationId);
@@ -248,17 +261,48 @@ export function createApp(deps: AppDeps) {
           if (!binding) throw new Error(`Unknown tool ${name}`);
           const outcome = await performExecute(deps, { workspaceId: workspace.id, ...binding, args });
           if (outcome.http >= 400) throw new Error(String(outcome.body.error ?? "Tool failed"));
+          if (typeof outcome.body.id === "string") {
+            downloads.push({ id: outcome.body.id, tool: binding.toolkit, tabular: tableFromResult(outcome.body.result) !== null });
+          }
           return outcome.body.result;
         },
       });
       const reply = String(redactText(result.text, secrets));
       await deps.store.insertMessage(conversationId, "assistant", reply);
-      return c.json({ conversationId, reply, tools: result.toolsUsed });
+      return c.json({ conversationId, reply, tools: result.toolsUsed, downloads });
     } catch (error) {
       const safe = redactText(error instanceof Error ? error.message : "Chat failed", secrets).slice(0, 300);
       await deps.store.insertMessage(conversationId, "assistant", safe);
       return c.json({ error: safe, conversationId }, 502);
     }
+  });
+
+  app.post("/v1/exports", async (c) => {
+    const workspace = await workspaceFrom(c, deps.store);
+    if (workspace instanceof Response) return workspace;
+    const body = await c.req.json().catch(() => ({}));
+    const format = body.format;
+    if (format !== "pdf" && format !== "xlsx" && format !== "docx") {
+      return c.json({ error: "Format must be pdf, xlsx, or docx." }, 400);
+    }
+    let title = typeof body.title === "string" && body.title.trim() ? body.title.trim().slice(0, 80) : "LoopAI";
+    let text = typeof body.text === "string" ? body.text.slice(0, 20_000) : "";
+    let table = null as ReturnType<typeof tableFromResult>;
+    if (typeof body.executionId === "string" && body.executionId) {
+      const row = await deps.store.getExecution(workspace.id, body.executionId);
+      if (!row || row.status !== "succeeded") return c.json({ error: "That result was not found." }, 404);
+      title = `${row.toolkitSlug} ${row.action}`;
+      table = tableFromResult(row.resultRedacted);
+      text = table ? "" : JSON.stringify(row.resultRedacted ?? {}, null, 2).slice(0, 20_000);
+    }
+    if (format === "xlsx" && !table && !text) return c.json({ error: "This result is not a table." }, 400);
+    const file = await buildExport({ format: format as ExportFormat, title, text, table });
+    return new Response(Buffer.from(file.bytes), {
+      headers: {
+        "content-type": file.contentType,
+        "content-disposition": `attachment; filename="${file.filename}"`,
+      },
+    });
   });
 
   app.get("/v1/agent-keys", async (c) => {
@@ -285,7 +329,11 @@ export function createApp(deps: AppDeps) {
 
   app.onError((err, c) => {
     if (err instanceof SyntaxError) return c.json({ error: "Invalid JSON" }, 400);
-    console.error(err instanceof Error ? err.name : "Request failed");
+    const text = err instanceof Error ? `${err.message} ${err.cause instanceof Error ? err.cause.message : ""}` : "";
+    console.error(text.slice(0, 300) || "Request failed");
+    if (/ENOTFOUND|ECONNREFUSED|EAI_AGAIN|timeout|connect/i.test(text)) {
+      return c.json({ error: "Database unreachable. DATABASE_URL is not resolving. Use the Supabase pooler host, not the direct db host." }, 500);
+    }
     return c.json({ error: "Request failed" }, 500);
   });
 
@@ -294,11 +342,15 @@ export function createApp(deps: AppDeps) {
 
 async function workspaceFrom(c: { req: { header: (name: string) => string | undefined }; json: (body: unknown, status?: number) => Response }, store: Store) {
   const header = c.req.header("authorization");
-  const workspace = await store.ensureWorkspace();
-  if (!header) return workspace;
-  const found = await store.findAgentKey(hashKey(header.replace(/^Bearer\s+/i, "")));
-  if (!found) return c.json({ error: "Unauthorized" }, 401);
-  return { id: found.workspaceId, name: workspace.name };
+  if (header) {
+    const found = await store.findAgentKey(hashKey(header.replace(/^Bearer\s+/i, "")));
+    if (!found) return c.json({ error: "Unauthorized" }, 401);
+    const workspace = await store.ensureWorkspace();
+    return { id: found.workspaceId, name: workspace.name };
+  }
+  const user = await userFromCookie(c.req.header("cookie"), store);
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  return { id: user.workspaceId, name: user.displayName };
 }
 
 function readCredentials(body: { secret?: unknown; credentials?: unknown }, toolkit: Toolkit): Record<string, string> | Response {
@@ -312,12 +364,20 @@ function readCredentials(body: { secret?: unknown; credentials?: unknown }, tool
   }
   const stored: Record<string, string> = {};
   for (const field of fields) {
-    if (!credentials[field.key] || credentials[field.key].length < 8) {
+    const value = credentials[field.key];
+    if (field.optional && !value) continue;
+    if (field.secret === false) {
+      if (!value || value.trim() === "") return Response.json({ error: `${field.label} is required.` }, { status: 400 });
+    } else if (!value || value.length < 8) {
       return Response.json({ error: `${field.label} must be at least 8 characters.` }, { status: 400 });
     }
-    stored[field.key] = credentials[field.key];
+    stored[field.key] = value;
   }
   return stored;
+}
+
+function oauthRedirect(publicUrl: string, toolkit: Toolkit): string {
+  return toolkit.oauth?.redirectUri ?? `${publicUrl}/v1/oauth/callback`;
 }
 
 function scopeOf(value: unknown): AccountScope {

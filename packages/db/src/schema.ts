@@ -1,9 +1,9 @@
-import { integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 /**
- * Tables the API queries. users, sessions, and workspace_members exist in SQL
- * for later login and invites. They are not mapped until that work starts.
- * Every secret row is scoped by workspace_id.
+ * Tables the API queries. Every secret row is scoped by workspace_id.
+ * Login uses users, sessions, and workspace_members. One login still joins
+ * the single workspace this process opens. It does not split vaults yet.
  */
 
 export const workspaces = pgTable("workspaces", {
@@ -72,6 +72,43 @@ export const messages = pgTable("messages", {
   conversationId: text("conversation_id").notNull().references(() => conversations.id),
   role: text("role").notNull(),
   content: text("content").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const users = pgTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").unique(),
+  username: text("username").unique(),
+  passwordHash: text("password_hash"),
+  displayName: text("display_name"),
+  googleSub: text("google_sub").unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const sessions = pgTable("sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+    userId: text("user_id").notNull().references(() => users.id),
+    role: text("role").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.workspaceId, table.userId] })],
+);
+
+export const notes = pgTable("notes", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

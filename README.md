@@ -16,16 +16,16 @@ They are two programs. Neither imports the other.
 
 `packages/core`, `packages/vault`, `packages/db`, and `packages/toolkits` are libraries. They are not servers. Only the API imports them. The browser never sees those packages.
 
-The pages are `apps/web/src/pages`. Each page calls `api()` in `apps/web/src/api.ts`, which is `fetch("/v1/...")`. Vite proxies `/v1` to port 8787, so the browser stays on 5173. Routes are in `apps/api/src/app.ts`. The full list is [api.md](api.md). Tables are in [db.md](db.md).
+The pages are `apps/web/src/pages`. Each page calls `api()` in `apps/web/src/api.ts`, which is `fetch("/v1/...")`. Vite proxies `/v1` to port 8787, so the browser stays on 5173. Routes are in `apps/api/src/app.ts` and `apps/api/src/auth-routes.ts`. The full list is [api.md](api.md). Tables are in [db.md](db.md). How each app authenticates is [packages/toolkits/README.md](packages/toolkits/README.md).
 
 A click on Connect follows this path:
 
 1. `ConnectApps.tsx` or `AppDetail.tsx` calls `POST /v1/connections` or `POST /v1/connections/start`.
 2. The API encrypts the secret, or returns the provider login URL.
 3. The provider later redirects to `GET /v1/oauth/callback` on port 8787.
-4. The API stores the token and sends the browser back to `http://localhost:5173/connect/apps/<slug>`.
+4. The API stores the token and sends the browser back to `http://localhost:5173/connect/apps/<slug>`, which then opens `http://localhost:5173/<username>_workspace/~/connect/apps/<slug>`.
 
-Chat follows the same split. `Chat.tsx` sends `POST /v1/chat`. The API decrypts the model key, calls the model, runs tools, and returns text. The page only renders that text.
+Chat follows the same split. `Chat.tsx` sends `POST /v1/chat`. The API decrypts the model key, calls the model, runs tools, and returns text. The page renders assistant replies as Markdown. The chat list in the sidebar appears only on the chat route. Delete calls `DELETE /v1/conversations/:id`.
 
 ## How to read the repo
 
@@ -50,7 +50,7 @@ corepack pnpm install
 corepack pnpm dev
 ```
 
-Open `http://localhost:5173`. That is the dashboard. The API is `http://localhost:8787` and is reached through the proxy. Swagger UI is `http://localhost:8787/docs`.
+Open `http://localhost:5173`. Signed out, that is the start page. **Log in** and **Get started** open a sign-in dialog on that page. After sign-in the address is `http://localhost:5173/<username>_workspace/~/connect/clients/chatgpt`. Apps, chat, help, and settings sit under the same `/<username>_workspace/~/` prefix. The signed-in pages use a warm dark background with the orange accent. Chat keeps its own dark pane, and its list appears only there. Delete on a chat removes that conversation. The API is `http://localhost:8787` and is reached through the proxy. Swagger UI is `http://localhost:8787/docs`.
 
 Stop both with Ctrl+C in that terminal. Run one side alone with `corepack pnpm --filter @loopai/web dev` or `corepack pnpm --filter @loopai/api dev`. The pages need both.
 
@@ -70,6 +70,34 @@ Open the app from the grid. Gmail, LinkedIn, and Google Calendar use the same pa
 Telegram and WhatsApp do not use OAuth. Open their app page and paste the credentials there. Telegram needs the bot token from BotFather. WhatsApp needs a Cloud API access token and a phone number id. News needs nothing.
 
 If a client id is missing, the button stays disabled and the page names the env vars. A refused login returns to the app page with an error. The error does not include the token.
+
+## Connect an agent
+
+Open **Connect my agent**. Pick Cursor, Claude, or ChatGPT, name a key, and copy the MCP block once. The raw key is not shown again.
+
+ChatGPT on this computer uses the same URL and bearer header. The ChatGPT website cannot reach `localhost`. The block works only while the API is running here.
+
+From a client on this machine:
+
+```bash
+claude mcp add --transport http loopai http://localhost:8787/mcp --header "Authorization: Bearer YOUR_KEY"
+```
+
+Replace `YOUR_KEY` with the key shown once at creation. Settings lists the name and prefix under **Sessions & API key**.
+
+## Check it
+
+```bash
+corepack pnpm test
+```
+
+That includes the agent checks: a job prompt calls `jobs__search`, a note prompt calls `notes__save`, a plain prompt calls nothing, and an intro email with no Gmail account returns the connect-Gmail error. The model is fake. Nothing is sent.
+
+```bash
+corepack pnpm test:live
+```
+
+That calls Groq and the public job boards. It needs `GROQ_API_KEY` in `apps/api/.env`.
 
 ## Add a tool
 

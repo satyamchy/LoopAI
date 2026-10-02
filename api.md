@@ -10,11 +10,55 @@ The blocks under each route are responses, unless the heading says **Request**. 
 
 ## Who can call it
 
-The dashboard sends no `Authorization` header. The API then uses the one local workspace.
+The dashboard sends the `loopai_session` cookie from sign-in. A route that needs a workspace returns `401` when that cookie is missing.
 
-An outside agent sends `Authorization: Bearer lai_...`. That key is checked against `agent_keys.key_hash`. A bad bearer is `401`. MCP always requires this header. The dashboard routes accept it when it is valid, and reject it when it is present but wrong.
+An outside agent sends `Authorization: Bearer lai_...`. That key is checked against `agent_keys.key_hash`. A bad bearer is `401`. MCP always requires this header. When the header is present and valid, the API uses that key's workspace and ignores the cookie.
 
-`GET /v1/oauth/callback` is the browser redirect from Google, LinkedIn, Slack, and the other OAuth apps. It does not use a bearer key.
+`GET /v1/oauth/callback` and `GET /v1/auth/google/callback` are browser redirects. They do not use a bearer key.
+
+## Sign-in
+
+The cookie is `HttpOnly`. The raw session token is not stored. `sessions.token_hash` is the lookup.
+
+### `GET /v1/auth/config`
+
+`{ "google": false }` until `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set.
+
+### `POST /v1/auth/register`
+
+```json
+{ "username": "satyam", "password": "at-least-8" }
+```
+
+Username is 3 to 32 letters, numbers, dots, or dashes. `409` when that name is taken. Success sets the cookie and returns `{ "username": "satyam", "displayName": "satyam" }`.
+
+### `POST /v1/auth/login`
+
+Same body as register. `401` with `{ "error": "Wrong username or password." }` when they do not match. Success is the same cookie and user object.
+
+### `POST /v1/auth/logout`
+
+Clears the cookie. `{ "ok": true }`
+
+### `GET /v1/auth/me`
+
+`{ "username": "satyam", "displayName": "satyam" }`. `401` when the cookie is missing or expired.
+
+### `GET /v1/auth/google`
+
+Returns `{ "url": "https://accounts.google.com/..." }`. `400` when the Google client pair is missing. The Google app must allow `http://localhost:8787/v1/auth/google/callback`.
+
+### `GET /v1/auth/google/callback`
+
+Google redirects here. The browser is then sent to `http://localhost:5173/login?code=...`, or `?error=google` when it fails.
+
+### `POST /v1/auth/google/finish`
+
+```json
+{ "code": "the code from the login page" }
+```
+
+Sets the session cookie and returns the user. `400` when the code has expired.
 
 ## Errors
 
@@ -205,6 +249,14 @@ Last 20 messages, oldest first.
 
 `404` when the conversation is not in this workspace.
 
+### `DELETE /v1/conversations/:id`
+
+Deletes that chat and its messages. `404` when it is not in this workspace.
+
+```json
+{ "ok": true }
+```
+
 ### `POST /v1/chat`
 
 ```json
@@ -230,6 +282,16 @@ Failure is `502`:
 ```
 
 That error is also stored as the assistant message. It does not contain the model key.
+
+### `POST /v1/exports`
+
+Downloads a file. The body is not JSON on success. The response is the file bytes.
+
+```json
+{ "format": "pdf", "title": "Chat", "text": "The reply" }
+```
+
+`format` is `pdf`, `xlsx`, or `docx`. Pass `executionId` instead of `text` to export a saved tool result. Text is capped at 20,000 characters. A table export is capped at 500 rows. `xlsx` of empty text and no table is `400`. Users, sessions, connected accounts, and keys are not exportable.
 
 ## Agent keys
 
@@ -262,6 +324,14 @@ Dashboard calls omit `Authorization`. An agent sends `Authorization: Bearer lai_
 
 | Route | Body the client sends |
 | --- | --- |
+| `GET /v1/auth/config` | None. |
+| `POST /v1/auth/register` | `{ "username": "satyam", "password": "at-least-8" }`. |
+| `POST /v1/auth/login` | Same as register. |
+| `POST /v1/auth/logout` | None. |
+| `GET /v1/auth/me` | None. Cookie required. |
+| `GET /v1/auth/google` | None. |
+| `GET /v1/auth/google/callback` | Query: `code`, `state`, and sometimes `error`. |
+| `POST /v1/auth/google/finish` | `{ "code": "..." }`. |
 | `GET /v1/health` | None. |
 | `GET /v1/workspace` | None. |
 | `GET /v1/toolkits` | None. |
@@ -276,7 +346,9 @@ Dashboard calls omit `Authorization`. An agent sends `Authorization: Bearer lai_
 | `POST /v1/llm-connections` | Model key. See below. |
 | `GET /v1/conversations` | None. |
 | `GET /v1/conversations/:id/messages` | None. |
+| `DELETE /v1/conversations/:id` | None. |
 | `POST /v1/chat` | Chat turn. See below. |
+| `POST /v1/exports` | `{ "format": "pdf", "title": "Chat", "text": "..." }`. `executionId` may replace `text`. |
 | `GET /v1/agent-keys` | None. |
 | `POST /v1/agent-keys` | `{ "name": "Cursor" }`. `name` may be omitted. |
 | `POST /mcp` | JSON-RPC. See below. Bearer required. |
@@ -404,6 +476,24 @@ These objects are `arguments` inside `POST /v1/tools/execute`. Omitted optional 
 | `patna-hc` | `search_by_party` | `{ "partyName": "Kumar" }` — 2 to 200 characters. No account. |
 | `patna-hc` | `paste_order` | `{ "text": "Order dated 02/10/2026" }` — up to 20000 characters. No account. |
 | `hindi-render` | `case` | See below. No account. |
+| `perplexity` | `ask` | `{ "query": "What changed in Postgres 18?", "model": "sonar" }`. `model` is `sonar` or `sonar-pro`. |
+| `supabase` | `select_rows` | `{ "table": "items", "limit": 5 }`. `table` is one public identifier. `limit` is 1 to 20. |
+| `custom-mcp` | `list_tools` | `{}`. |
+| `custom-mcp` | `call_tool` | `{ "name": "search", "arguments": { "q": "hello" } }`. |
+| `google-sheets` | `read_values` | `{ "spreadsheetId": "abc", "range": "Sheet1!A1:C10" }`. |
+| `twitter` | `get_me` | `{}`. |
+| `profile` | `read` | `{}`. |
+| `profile` | `send_intro` | `{ "to": "hr@example.com", "subject": "Hello", "body": "Optional override" }`. Subject and body are optional. One recipient. Requires Gmail. |
+| `jobs` | `search` | `{ "role": "backend engineer" }`. Public listings only. |
+| `notes` | `save` | `{ "title": "Reminder", "body": "Call tomorrow" }`. |
+| `notes` | `search` | `{ "query": "tomorrow" }`. |
+| `manuscript` | `add_chapter` | `{ "title": "Chapter 1", "body": "The first page." }`. |
+| `manuscript` | `list_chapters` | `{}`. |
+| `manuscript` | `read_chapter` | `{ "id": "note-id" }`. |
+| `manuscript` | `append` | `{ "id": "note-id", "text": "More prose." }`. |
+| `canva` | `create_design` | `{ "title": "Cover", "preset": "doc" }`. `preset` is `doc` or `presentation`. Optional `width` and `height`. |
+| `canva` | `import_manuscript` | `{ "title": "My book" }`. Title is optional. Needs saved chapters. |
+| `canva` | `export_design` | `{ "designId": "DAF..." }`. Returns Canva download URLs that expire in 24 hours. |
 
 `hindi-render` / `case` quotes only values that already appear inside `sourceText`:
 

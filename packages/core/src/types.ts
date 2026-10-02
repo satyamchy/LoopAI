@@ -17,6 +17,10 @@ export type OAuthConfig = {
   extraAuthParams?: Record<string, string>;
   /** Some providers want a JSON token body. The default is a form body. */
   tokenRequest?: "form" | "json";
+  /** Send the client secret as HTTP Basic instead of a form field. */
+  tokenAuth?: "basic";
+  /** When set, this replaces the API public URL on the OAuth redirect. */
+  redirectUri?: string;
   tokenHeaders?: Record<string, string>;
   /** Optional call after connect to label the account, usually an email. */
   profile?: { url: string; labelField: string };
@@ -29,7 +33,7 @@ export type OAuthConfig = {
  * `run` receives a bearer token for OAuth apps. API-key apps pass null so the
  * secret cannot be copied into the result by accident.
  */
-export type CredentialField = { key: string; label: string };
+export type CredentialField = { key: string; label: string; optional?: boolean; secret?: boolean };
 
 export type ToolkitAction = {
   slug: string;

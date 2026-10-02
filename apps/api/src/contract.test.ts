@@ -5,33 +5,39 @@ import { toolkits } from "@loopai/toolkits";
 import { createApp } from "./app";
 import { createMemoryStore } from "./store";
 import { providerBaseUrl, runToolLoop } from "./run-tool-loop";
+import { withSession } from "./with-session";
 
 const master = masterKeyFromBase64(randomBytes(32).toString("base64"));
 
-function testApp() {
+async function testApp() {
   const store = createMemoryStore(master);
-  const app = createApp({
+  const raw = createApp({
     store,
     toolkits,
     publicUrl: "https://api.example.com",
     webOrigin: "https://app.example.com",
   });
-  return { app, store };
+  const app = await withSession(raw);
+  return { app, store, raw };
 }
 
 describe("auth contract", () => {
-  test("a wrong bearer is rejected and a missing bearer still reaches the workspace", async () => {
-    const { app } = testApp();
-    const denied = await app.request("/v1/connections", { headers: { authorization: "Bearer lai_not-a-real-key" } });
+  test("a missing session is rejected and a session lists connections", async () => {
+    const store = createMemoryStore(master);
+    const raw = createApp({ store, toolkits, publicUrl: "https://api.example.com", webOrigin: "https://app.example.com" });
+    const denied = await raw.request("/v1/connections");
     expect(denied.status).toBe(401);
+    const wrong = await raw.request("/v1/connections", { headers: { authorization: "Bearer lai_not-a-real-key" } });
+    expect(wrong.status).toBe(401);
 
+    const app = await withSession(raw);
     const open = await app.request("/v1/connections");
     expect(open.status).toBe(200);
     expect(await open.json()).toEqual({ connections: [] });
   });
 
   test("health does not check the database", async () => {
-    const { app } = testApp();
+    const { app } = await testApp();
     const health = await app.request("/v1/health");
     expect(health.status).toBe(200);
     expect(await health.json()).toEqual({ ok: true });
@@ -40,7 +46,7 @@ describe("auth contract", () => {
 
 describe("oauth callback", () => {
   test("a refused login redirects without copying the provider error into the url", async () => {
-    const { app } = testApp();
+    const { app } = await testApp();
     const leaked = "provider-token-should-not-appear";
     const response = await app.request(`/v1/oauth/callback?error=access_denied&error_description=${leaked}`, { redirect: "manual" });
     expect(response.status).toBe(302);
@@ -54,7 +60,7 @@ describe("oauth callback", () => {
 
 describe("tool execute contract", () => {
   test("invalid arguments return field names and not the value", async () => {
-    const { app } = testApp();
+    const { app } = await testApp();
     const secret = "echo-secret-value";
     const account = await (
       await app.request("/v1/connections", {
@@ -83,7 +89,7 @@ describe("tool execute contract", () => {
   });
 
   test("an oauth app cannot be saved as an api key", async () => {
-    const { app } = testApp();
+    const { app } = await testApp();
     const response = await app.request("/v1/connections", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -93,7 +99,7 @@ describe("tool execute contract", () => {
   });
 
   test("an unknown toolkit is not executed", async () => {
-    const { app } = testApp();
+    const { app } = await testApp();
     const response = await app.request("/v1/tools/execute", {
       method: "POST",
       headers: { "content-type": "application/json" },

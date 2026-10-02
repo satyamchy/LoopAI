@@ -14,6 +14,16 @@ import { telegram } from "./telegram";
 import { news } from "./news";
 import { patnaHc } from "./patna-hc";
 import { hindiRender } from "./hindi-render";
+import { perplexity } from "./perplexity";
+import { supabase } from "./supabase";
+import { customMcp } from "./custom-mcp";
+import { googleSheets } from "./google-sheets";
+import { twitter } from "./twitter";
+import { profile } from "./profile";
+import { jobs } from "./jobs";
+import { notes } from "./notes";
+import { manuscript } from "./manuscript";
+import { canva } from "./canva";
 
 /**
  * Registry. To add a tool: create a file, export a Toolkit, and append it here.
@@ -35,6 +45,16 @@ export const toolkits: Toolkit[] = [
   news,
   patnaHc,
   hindiRender,
+  perplexity,
+  supabase,
+  customMcp,
+  googleSheets,
+  twitter,
+  profile,
+  jobs,
+  notes,
+  manuscript,
+  canva,
 ];
 
 export function findToolkit(slug: string): Toolkit | null {
@@ -42,6 +62,7 @@ export function findToolkit(slug: string): Toolkit | null {
 }
 
 export { executeToolkit } from "./execute";
+export type { NotePort } from "./note-port";
 export { authorizeUrl, clientConfigured, exchangeCode, refreshAccessToken } from "./oauth";
 export { listCards } from "./catalog";
 export { echo, gmail, hindiRender, patnaHc };

@@ -102,21 +102,29 @@ function requiredEnv(name: string): string {
 }
 
 async function tokenRequest(oauth: OAuthConfig, body: Record<string, string>): Promise<Record<string, unknown>> {
+  const fields = { ...body };
   const headers: Record<string, string> = {
     accept: "application/json",
     ...(oauth.tokenHeaders ?? {}),
   };
+  if (oauth.tokenAuth === "basic") {
+    const id = fields.client_id ?? "";
+    const secret = fields.client_secret ?? "";
+    delete fields.client_id;
+    delete fields.client_secret;
+    headers.authorization = `Basic ${Buffer.from(`${id}:${secret}`).toString("base64")}`;
+  }
   const response =
     oauth.tokenRequest === "json"
       ? await fetch(oauth.tokenUrl, {
           method: "POST",
           headers: { ...headers, "content-type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify(fields),
         })
       : await fetch(oauth.tokenUrl, {
           method: "POST",
           headers: { ...headers, "content-type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams(body),
+          body: new URLSearchParams(fields),
         });
   const json = (await response.json()) as Record<string, unknown>;
   if (!response.ok || typeof json.error === "string" || json.ok === false) {
@@ -142,8 +150,17 @@ async function profileLabel(oauth: OAuthConfig, token: string): Promise<string |
   });
   if (!response.ok) return null;
   const json = (await response.json()) as Record<string, unknown>;
-  const label = json[oauth.profile.labelField];
+  const label = readPath(json, oauth.profile.labelField);
   return typeof label === "string" ? label : null;
+}
+
+function readPath(json: Record<string, unknown>, path: string): unknown {
+  let current: unknown = json;
+  for (const part of path.split(".")) {
+    if (!current || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
 }
 
 function codeChallenge(verifier: string): string {
