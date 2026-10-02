@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { AccountScope } from "@loopai/core";
 import { decryptJson, encryptJson, newDataKey } from "@loopai/vault";
 
@@ -23,6 +23,16 @@ export type ExecutionRecord = {
   errorCode: string | null;
 };
 
+export type ExecutionDetail = ExecutionRecord & { toolkitSlug: string; action: string };
+
+export type NoteRecord = {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  createdAt: string;
+};
+
 export type LlmPublic = { id: string; provider: string; model: string; baseUrl: string | null };
 export type LlmRecord = LlmPublic & { encryptedApiKey: string };
 
@@ -37,6 +47,7 @@ export type OAuthStateRecord = {
 
 export type Store = {
   ensureWorkspace(): Promise<{ id: string; name: string }>;
+  ping(): Promise<void>;
   encrypt(value: unknown): Promise<string>;
   decrypt(payload: string): Promise<unknown>;
   listAccounts(workspaceId: string): Promise<PublicAccount[]>;
@@ -59,6 +70,12 @@ export type Store = {
     latencyMs: number;
     errorCode: string | null;
   }): Promise<ExecutionRecord>;
+  getExecution(workspaceId: string, id: string): Promise<ExecutionDetail | null>;
+  insertNote(input: { workspaceId: string; kind: string; title: string; body: string }): Promise<NoteRecord>;
+  searchNotes(workspaceId: string, kind: string, query: string): Promise<NoteRecord[]>;
+  listNotes(workspaceId: string, kind: string): Promise<NoteRecord[]>;
+  getNote(workspaceId: string, id: string): Promise<NoteRecord | null>;
+  appendNote(workspaceId: string, id: string, text: string): Promise<NoteRecord | null>;
   listLlms(workspaceId: string): Promise<LlmPublic[]>;
   getLlm(id: string): Promise<LlmRecord | null>;
   insertLlm(input: { workspaceId: string; provider: string; model: string; baseUrl: string | null; encryptedApiKey: string }): Promise<LlmPublic>;
@@ -70,17 +87,34 @@ export type Store = {
   getConversation(id: string): Promise<{ id: string; workspaceId: string } | null>;
   listMessages(conversationId: string): Promise<{ role: string; content: string }[]>;
   insertMessage(conversationId: string, role: string, content: string): Promise<void>;
+  deleteConversation(id: string): Promise<void>;
+  createUser(input: { username: string; passwordHash: string | null; displayName: string; email: string | null; googleSub: string | null }): Promise<SessionUser>;
+  findUserByUsername(username: string): Promise<(SessionUser & { passwordHash: string | null }) | null>;
+  findUserByGoogleSub(googleSub: string): Promise<SessionUser | null>;
+  createSession(userId: string): Promise<{ rawToken: string }>;
+  findSession(tokenHash: string): Promise<SessionUser | null>;
+  deleteSession(tokenHash: string): Promise<void>;
+};
+
+export type SessionUser = {
+  userId: string;
+  workspaceId: string;
+  username: string;
+  displayName: string;
 };
 
 type Memory = {
   workspace: { id: string; name: string; dek: Buffer } | null;
   accounts: AccountRecord[];
   states: OAuthStateRecord[];
-  executions: (ExecutionRecord & { workspaceId: string; idempotencyKey: string | null })[];
+  executions: (ExecutionDetail & { workspaceId: string; idempotencyKey: string | null })[];
+  notes: (NoteRecord & { workspaceId: string })[];
   llms: (LlmRecord & { workspaceId: string })[];
   keys: { id: string; workspaceId: string; name: string; keyHash: string; keyPrefix: string; createdAt: string }[];
   conversations: { id: string; workspaceId: string; title: string; createdAt: string }[];
   messages: { conversationId: string; role: string; content: string }[];
+  users: { id: string; workspaceId: string; username: string; passwordHash: string | null; displayName: string; email: string | null; googleSub: string | null }[];
+  sessions: { tokenHash: string; userId: string; expiresAt: string }[];
 };
 
 export function createMemoryStore(_masterKey: Buffer): Store {
@@ -89,10 +123,13 @@ export function createMemoryStore(_masterKey: Buffer): Store {
     accounts: [],
     states: [],
     executions: [],
+    notes: [],
     llms: [],
     keys: [],
     conversations: [],
     messages: [],
+    users: [],
+    sessions: [],
   };
 
   const store: Store = {
@@ -102,6 +139,7 @@ export function createMemoryStore(_masterKey: Buffer): Store {
       }
       return { id: db.workspace.id, name: db.workspace.name };
     },
+    async ping() {},
     async encrypt(value) {
       await store.ensureWorkspace();
       return encryptJson(value, db.workspace!.dek);
@@ -146,9 +184,52 @@ export function createMemoryStore(_masterKey: Buffer): Store {
       return db.executions.find((item) => item.workspaceId === workspaceId && item.idempotencyKey === idempotencyKey) ?? null;
     },
     async insertExecution(input) {
-      const row = { id: randomUUID(), status: input.status, resultRedacted: input.resultRedacted, errorCode: input.errorCode, workspaceId: input.workspaceId, idempotencyKey: input.idempotencyKey };
+      const row = {
+        id: randomUUID(),
+        status: input.status,
+        resultRedacted: input.resultRedacted,
+        errorCode: input.errorCode,
+        toolkitSlug: input.toolkitSlug,
+        action: input.action,
+        workspaceId: input.workspaceId,
+        idempotencyKey: input.idempotencyKey,
+      };
       db.executions.push(row);
       return row;
+    },
+    async getExecution(workspaceId, id) {
+      return db.executions.find((item) => item.workspaceId === workspaceId && item.id === id) ?? null;
+    },
+    async insertNote(input) {
+      const row = { ...input, id: randomUUID(), createdAt: new Date().toISOString() };
+      db.notes.push(row);
+      return publishNote(row);
+    },
+    async searchNotes(workspaceId, kind, query) {
+      const needle = query.trim().toLowerCase();
+      return db.notes
+        .filter((item) => item.workspaceId === workspaceId && item.kind === kind)
+        .filter((item) => `${item.title}\n${item.body}`.toLowerCase().includes(needle))
+        .slice(-20)
+        .reverse()
+        .map(publishNote);
+    },
+    async listNotes(workspaceId, kind) {
+      return db.notes
+        .filter((item) => item.workspaceId === workspaceId && item.kind === kind)
+        .slice(-100)
+        .reverse()
+        .map(publishNote);
+    },
+    async getNote(workspaceId, id) {
+      const row = db.notes.find((item) => item.workspaceId === workspaceId && item.id === id);
+      return row ? publishNote(row) : null;
+    },
+    async appendNote(workspaceId, id, text) {
+      const row = db.notes.find((item) => item.workspaceId === workspaceId && item.id === id);
+      if (!row) return null;
+      row.body = `${row.body}\n\n${text}`;
+      return publishNote(row);
     },
     async listLlms(workspaceId) {
       return db.llms.filter((item) => item.workspaceId === workspaceId).map(({ id, provider, model, baseUrl }) => ({ id, provider, model, baseUrl }));
@@ -193,12 +274,56 @@ export function createMemoryStore(_masterKey: Buffer): Store {
     async insertMessage(conversationId, role, content) {
       db.messages.push({ conversationId, role, content });
     },
+    async deleteConversation(id) {
+      db.messages = db.messages.filter((item) => item.conversationId !== id);
+      db.conversations = db.conversations.filter((item) => item.id !== id);
+    },
+    async createUser(input) {
+      const workspace = await store.ensureWorkspace();
+      const row = { id: randomUUID(), workspaceId: workspace.id, ...input };
+      db.users.push(row);
+      return publishUser(row);
+    },
+    async findUserByUsername(username) {
+      const row = db.users.find((item) => item.username === username);
+      return row ? { ...publishUser(row), passwordHash: row.passwordHash } : null;
+    },
+    async findUserByGoogleSub(googleSub) {
+      const row = db.users.find((item) => item.googleSub === googleSub);
+      return row ? publishUser(row) : null;
+    },
+    async createSession(userId) {
+      const rawToken = randomUUID() + randomUUID();
+      db.sessions.push({ tokenHash: hashToken(rawToken), userId, expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString() });
+      return { rawToken };
+    },
+    async findSession(tokenHash) {
+      const session = db.sessions.find((item) => item.tokenHash === tokenHash && Date.parse(item.expiresAt) > Date.now());
+      const row = session ? db.users.find((item) => item.id === session.userId) : undefined;
+      return row ? publishUser(row) : null;
+    },
+    async deleteSession(tokenHash) {
+      const index = db.sessions.findIndex((item) => item.tokenHash === tokenHash);
+      if (index >= 0) db.sessions.splice(index, 1);
+    },
   };
 
   return store;
 }
 
+function publishNote(row: NoteRecord & { workspaceId: string }): NoteRecord {
+  return { id: row.id, kind: row.kind, title: row.title, body: row.body, createdAt: row.createdAt };
+}
+
 function publish(account: AccountRecord): PublicAccount {
   const { encryptedCredentials: _hidden, ...rest } = account;
   return rest;
+}
+
+function publishUser(row: { id: string; workspaceId: string; username: string; displayName: string }): SessionUser {
+  return { userId: row.id, workspaceId: row.workspaceId, username: row.username, displayName: row.displayName };
+}
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }

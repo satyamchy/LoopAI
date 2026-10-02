@@ -17,7 +17,9 @@ export async function executeToolkit(
     const fields = toolkit.credentialFields ?? [{ key: "secret", label: "Secret" }];
     for (const field of fields) {
       const value = credentials[field.key];
-      if (typeof value !== "string" || value.length < 8) {
+      if (field.optional && (value === undefined || value === "")) continue;
+      const tooShort = field.secret === false ? typeof value !== "string" || value.trim() === "" : typeof value !== "string" || value.length < 8;
+      if (tooShort) {
         throw new Error(`Connect ${toolkit.displayName} again. ${field.label} is missing.`);
       }
     }
@@ -29,8 +31,8 @@ export async function executeToolkit(
   if (toolkit.authType === "oauth2") {
     const token = credentials.access_token;
     if (typeof token !== "string" || !token) throw new Error("Reconnect this app.");
-    return found.run(args, token);
+    return found.run(args, token, credentials);
   }
 
-  return found.run(args, null);
+  return found.run(args, null, credentials);
 }
