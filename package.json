@@ -1,0 +1,13 @@
+{
+  "name": "loopai",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel --filter @loopai/api --filter @loopai/web dev",
+    "test": "vitest run",
+    "db:migrate": "pnpm --filter @loopai/db migrate"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.5"
+  }
+}

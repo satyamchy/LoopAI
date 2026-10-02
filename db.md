@@ -1,0 +1,176 @@
+# Database
+
+Postgres holds the workspace, encrypted credentials, chat history, and an audit row for each tool call. The schema is `packages/db/src/migrations/0001_init.sql`. Drizzle maps the tables the API uses in `packages/db/src/schema.ts`.
+
+Without `DATABASE_URL`, the API keeps the same records in memory. Nothing is written to Postgres until you set `DATABASE_URL` and run `corepack pnpm db:migrate`.
+
+## Where tokens live
+
+The raw token is never a column. The API encrypts it with the workspace data key and stores the ciphertext.
+
+| Secret | Table | Column | Stored as |
+| --- | --- | --- | --- |
+| Gmail, LinkedIn, Calendar, Slack, and the other OAuth tokens | `connected_accounts` | `encrypted_credentials` | Ciphertext. Inside: `access_token`, `refresh_token`, `expires_at`. |
+| Telegram bot token, WhatsApp access token and phone number id, Echo secret | `connected_accounts` | `encrypted_credentials` | Ciphertext. Field names match the app (`botToken`, `accessToken`, `phoneNumberId`, or `secret`). |
+| Model API key (OpenAI, Gemini, Groq, OpenRouter, Custom) | `llm_connections` | `encrypted_api_key` | Ciphertext. Inside: `apiKey`. |
+| OAuth code verifier, kept only until the callback | `oauth_states` | `code_verifier_encrypted` | Ciphertext. Deleted when the callback is consumed. |
+| Agent key for Cursor or Claude (`lai_...`) | `agent_keys` | `key_hash` | SHA-256 hash. The raw key is shown once and is not stored. `key_prefix` is the visible start of the key. |
+| Later login session | `sessions` | `token_hash` | Hash. This table is unused until login exists. |
+
+`VAULT_MASTER_KEY` is not in the database. It stays in `apps/api/.env`. It unwraps `workspace_keys.wrapped_dek`. That data key decrypts `encrypted_credentials` and `encrypted_api_key`. The browser never receives either key.
+
+`tool_executions.args_redacted` and `result_redacted` are scrubbed before insert. A token that appeared in a result is replaced with `[redacted]`.
+
+## Tables
+
+### `workspaces`
+
+One row per workspace. Today the API creates a single row named "My workspace".
+
+| Column | Need |
+| --- | --- |
+| `id` | Primary key. Every other workspace-owned row points here. |
+| `name` | Label shown in the sidebar. |
+| `created_at` | When the workspace was created. |
+
+### `workspace_keys`
+
+The encrypted data key for that workspace. One row per workspace.
+
+| Column | Need |
+| --- | --- |
+| `workspace_id` | Primary key and foreign key to `workspaces.id`. |
+| `wrapped_dek` | Data key wrapped by `VAULT_MASTER_KEY`. Required to decrypt credentials. Useless without the master key. |
+| `created_at` | When the key was created. |
+
+### `connected_accounts`
+
+One connected app account: a Gmail mailbox, a Telegram bot, a WhatsApp number, and so on.
+
+| Column | Need |
+| --- | --- |
+| `id` | Primary key. Chat and execute pass this when more than one account exists. |
+| `workspace_id` | Which workspace owns the account. |
+| `toolkit_slug` | App id, such as `gmail`, `telegram`, `whatsapp`, `google-calendar`, `news`. |
+| `scope` | `user` (Connect New) or `workspace` (Connect for my team). |
+| `status` | `active` while the account can be used. |
+| `external_label` | What the page shows, usually an email or the app name. Not a secret. |
+| `expires_at` | When the OAuth access token should be refreshed. Null for API-key apps. |
+| `encrypted_credentials` | The token blob. This is the column that holds app tokens. |
+| `created_at` | Shown as "minutes ago" on the app page. |
+| `updated_at` | Set again on reconnect or token refresh. |
+
+### `oauth_states`
+
+Short-lived row for an OAuth login that has not finished. The callback reads it once and deletes it.
+
+| Column | Need |
+| --- | --- |
+| `state` | Primary key. Matches the `state` query param Google or LinkedIn sends back. |
+| `workspace_id` | Workspace that started the login. |
+| `toolkit_slug` | Which app is being connected. |
+| `code_verifier_encrypted` | PKCE verifier, plus the account id when this is a reconnect. |
+| `scope` | `user` or `workspace`, copied onto the new account. |
+| `expires_at` | Login must finish within 10 minutes. |
+
+### `llm_connections`
+
+A model the chat page can call. The key is separate from app tokens.
+
+| Column | Need |
+| --- | --- |
+| `id` | Primary key. Chat sends this as `llmConnectionId`. |
+| `workspace_id` | Which workspace owns the model. |
+| `provider` | `openai`, `gemini`, `groq`, `openrouter`, or `compatible`. |
+| `model` | Model name sent to the provider, such as `gpt-4o-mini` or `gemini-2.0-flash`. |
+| `base_url` | Host for Custom, or the built-in host when one was saved. |
+| `encrypted_api_key` | The model key. The list endpoint does not return this column. |
+| `created_at` | When the model was added. |
+
+### `agent_keys`
+
+Keys for an outside agent (Cursor, Claude) calling MCP or `/v1/tools/execute`.
+
+| Column | Need |
+| --- | --- |
+| `id` | Primary key. |
+| `workspace_id` | Workspace the key may act in. |
+| `name` | Label chosen when the key was created. |
+| `key_hash` | Lookup value. Unique. A request is accepted only when the bearer hash matches and `revoked_at` is null. |
+| `key_prefix` | Shown in the dashboard so you can tell keys apart. |
+| `created_at` | When the key was created. |
+| `revoked_at` | Set when the key is revoked. Null means the key still works. |
+
+### `conversations`
+
+One chat thread.
+
+| Column | Need |
+| --- | --- |
+| `id` | Primary key. |
+| `workspace_id` | Which workspace owns the thread. |
+| `title` | First part of the first message. Shown in the chat list. |
+| `created_at` | Order of the list. Newest first. |
+
+### `messages`
+
+One line in a thread. User text and the assistant reply, including a stored error such as `LLM provider returned 401`.
+
+| Column | Need |
+| --- | --- |
+| `id` | Primary key. |
+| `conversation_id` | Foreign key to `conversations.id`. |
+| `role` | `user` or `assistant`. |
+| `content` | The text. Tool output is not copied here. Secrets are stripped before insert. |
+| `created_at` | Order inside the thread. |
+
+### `tool_executions`
+
+Audit row for one tool call. A repeated `idempotency_key` returns this row instead of calling the vendor again.
+
+| Column | Need |
+| --- | --- |
+| `id` | Primary key. Returned to the caller. |
+| `workspace_id` | Which workspace ran the tool. |
+| `connected_account_id` | Account used. Set to null if that account is later deleted. |
+| `toolkit_slug` | App that ran. |
+| `action` | Action slug, such as `list_messages` or `send_text`. |
+| `idempotency_key` | Optional. Unique per workspace so a retry does not send a second email. |
+| `args_redacted` | Arguments after secrets are removed. |
+| `result_redacted` | Result after secrets are removed. Null when the call failed. |
+| `status` | `succeeded` or `failed`. |
+| `latency_ms` | How long the call took. |
+| `error_code` | Safe error text. Not the vendor body and not the token. |
+| `created_at` | When the call finished. |
+
+### `users`
+
+Reserved for login. The API does not read or write this table yet.
+
+| Column | Need |
+| --- | --- |
+| `id` | Primary key. |
+| `email` | Login identity. Unique. |
+| `created_at` | When the user was created. |
+
+### `sessions`
+
+Reserved for login. Unused.
+
+| Column | Need |
+| --- | --- |
+| `id` | Primary key. |
+| `user_id` | Foreign key to `users.id`. |
+| `token_hash` | Hash of a future session cookie. The raw session token is not stored. |
+| `expires_at` | When the session stops working. |
+| `created_at` | When the session was created. |
+
+### `workspace_members`
+
+Reserved for inviting people into a workspace. Unused.
+
+| Column | Need |
+| --- | --- |
+| `workspace_id` | Workspace. Part of the primary key. |
+| `user_id` | User. Part of the primary key. |
+| `role` | What that person may do in the workspace. |
