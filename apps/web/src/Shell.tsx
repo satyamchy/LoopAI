@@ -51,7 +51,7 @@ export function Shell({ user, children }: { user: SessionUser; children: ReactNo
   }
 
   const links = [
-    { to: `${base}/connect/clients/chatgpt`, label: "Home", active: location.pathname.endsWith("/connect/clients/chatgpt"), icon: icons.home },
+    { to: base, label: "Home", active: location.pathname === base, icon: icons.home },
     { to: `${base}/connect/apps`, label: "Connect Apps", active: location.pathname.includes("/connect/apps"), icon: icons.apps },
     { to: `${base}/connect/clients/chatgpt`, label: "Connect my agent", active: onClients, icon: icons.agent },
     { to: `${base}/chat`, label: "Chat", active: chat && !activeChat, icon: icons.chat },

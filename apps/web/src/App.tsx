@@ -44,7 +44,7 @@ function SignedIn() {
         <Route path="/chat" element={<Forward to={`${base}/chat`} />} />
         <Route path="/help" element={<Navigate to={`${base}/help`} replace />} />
         <Route path="/settings" element={<Navigate to={`${base}/settings`} replace />} />
-        <Route path="/:workspace/~" element={<Navigate to="connect/clients/chatgpt" replace />} />
+        <Route path="/:workspace/~" element={<InWorkspace user={user}><ConnectAgents /></InWorkspace>} />
         <Route path="/:workspace/~/connect/clients" element={<Navigate to="chatgpt" replace />} />
         <Route path="/:workspace/~/connect/clients/:client" element={<InWorkspace user={user}><ConnectAgents /></InWorkspace>} />
         <Route path="/:workspace/~/connect/apps" element={<InWorkspace user={user}><ConnectApps /></InWorkspace>} />

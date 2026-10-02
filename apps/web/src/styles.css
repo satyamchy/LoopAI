@@ -122,3 +122,15 @@ textarea {
 .desk textarea::placeholder {
   color: #a8a29e;
 }
+
+.desk button.bg-white,
+.desk button.bg-orange-50 {
+  color: #1c1917;
+}
+
+.desk button.bg-white .text-stone-500,
+.desk button.bg-white .text-stone-600,
+.desk button.bg-orange-50 .text-stone-500,
+.desk button.bg-orange-50 .text-stone-600 {
+  color: #57534e;
+}
