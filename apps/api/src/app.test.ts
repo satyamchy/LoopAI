@@ -150,3 +150,17 @@ describe("agent keys", () => {
     expect(text).toContain("loopai");
   });
 });
+
+describe("docs", () => {
+  test("serves the OpenAPI document", async () => {
+    const { app } = testApp();
+    const spec = await app.request("/openapi.json");
+    expect(spec.status).toBe(200);
+    const body = await spec.json();
+    expect(body.paths["/v1/chat"].post).toBeTruthy();
+    expect(body.paths["/v1/connections"].post).toBeTruthy();
+    const page = await app.request("/docs");
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("swagger");
+  });
+});

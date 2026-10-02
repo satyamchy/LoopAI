@@ -16,12 +16,15 @@ export function ConnectApps() {
   const [echoResult, setEchoResult] = useState<string | null>(null);
 
   async function reload() {
-    const [catalog, linked] = await Promise.all([
-      api<{ toolkits: ToolkitCard[] }>("/v1/toolkits"),
-      api<{ connections: Connection[] }>("/v1/connections"),
-    ]);
+    const catalog = await api<{ toolkits: ToolkitCard[] }>("/v1/toolkits");
     setToolkits(catalog.toolkits);
-    setConnections(linked.connections);
+    try {
+      const linked = await api<{ connections: Connection[] }>("/v1/connections");
+      setConnections(linked.connections);
+    } catch (reason) {
+      setConnections([]);
+      setError(reason instanceof Error ? reason.message : "Connections could not be loaded.");
+    }
   }
 
   useEffect(() => {
@@ -74,8 +77,29 @@ export function ConnectApps() {
     setEchoResult(JSON.stringify(result.result));
   }
 
+  const groups = [
+    { id: "connected", title: "Connected", items: visible.filter((toolkit) => connections.some((item) => item.toolkitSlug === toolkit.slug)) },
+    {
+      id: "ready",
+      title: "Ready to connect",
+      items: visible.filter((toolkit) => {
+        const linked = connections.some((item) => item.toolkitSlug === toolkit.slug);
+        const needsSetup = !toolkit.implemented || (toolkit.authType === "oauth2" && !toolkit.configured);
+        return !linked && !needsSetup;
+      }),
+    },
+    {
+      id: "setup",
+      title: "Needs setup",
+      items: visible.filter((toolkit) => {
+        const linked = connections.some((item) => item.toolkitSlug === toolkit.slug);
+        return !linked && (!toolkit.implemented || (toolkit.authType === "oauth2" && !toolkit.configured));
+      }),
+    },
+  ];
+
   return (
-    <section>
+    <section className="page">
       <header className="page-head">
         <div>
           <h1>Apps</h1>
@@ -95,52 +119,61 @@ export function ConnectApps() {
         </div>
         <input className="search" placeholder="Search" value={query} onChange={(event) => setQuery(event.target.value)} />
       </div>
-      <div className="grid">
-        {visible.map((toolkit) => {
-          const mine = connections.filter((item) => item.toolkitSlug === toolkit.slug);
-          const active = mine.length > 0;
-          return (
-            <article key={toolkit.slug} className="card" title={toolkit.description}>
-              <div className="card-main">
-                <span className="app-mark">{toolkit.displayName.slice(0, 1)}</span>
-                <div>
-                  <h2><Link to={`/connect/apps/${toolkit.slug}`}>{toolkit.displayName}</Link></h2>
-                  {active && <small>{mine[0].externalLabel}</small>}
-                </div>
-              </div>
-              {toolkit.authType === "none" ? (
-                <span className="ready">Ready</span>
-              ) : active ? (
-                <span className="active">Active</span>
-              ) : (
-                <button
-                  className="button"
-                  type="button"
-                  disabled={!toolkit.implemented || !toolkit.configured}
-                  title={toolkit.setupEnv ? `Set ${toolkit.setupEnv}` : undefined}
-                  onClick={() => connect(toolkit).catch((reason: Error) => setError(reason.message))}
-                >
-                  Connect
-                </button>
-              )}
-              {toolkit.slug === "echo" && mine[0] && (
-                <form className="echo-run" onSubmit={(event) => event.preventDefault()}>
-                  <input value={echoMessage} onChange={(event) => setEchoMessage(event.target.value)} />
-                  <button
-                    className="button"
-                    type="button"
-                    onClick={() => runEcho(mine[0].id).catch((reason: Error) => setError(reason.message))}
-                  >
-                    Run
-                  </button>
-                </form>
-              )}
-              {toolkit.slug === "echo" && echoResult && <pre className="result">{echoResult}</pre>}
-            </article>
-          );
-        })}
-      </div>
+      {groups.map((group) =>
+        group.items.length === 0 ? null : (
+          <section key={group.id} className="app-section">
+            <h2>{group.title} <span className="section-count">{group.items.length}</span></h2>
+            <div className="grid">
+              {group.items.map((toolkit) => {
+                const mine = connections.filter((item) => item.toolkitSlug === toolkit.slug);
+                const active = mine.length > 0;
+                return (
+                  <article key={toolkit.slug} className="card" title={toolkit.description}>
+                    <div className="card-main">
+                      <span className="app-mark">{toolkit.displayName.slice(0, 1)}</span>
+                      <div>
+                        <h2><Link to={`/connect/apps/${toolkit.slug}`}>{toolkit.displayName}</Link></h2>
+                        <small>{active ? mine[0].externalLabel ?? `${mine.length} connected` : toolkit.authType === "none" ? "No account needed" : toolkit.implemented ? toolkit.authType : "Not built yet"}</small>
+                      </div>
+                    </div>
+                    {toolkit.authType === "none" ? (
+                      <span className="ready">Ready</span>
+                    ) : active ? (
+                      <span className="active">Active</span>
+                    ) : (
+                      <button
+                        className="button"
+                        type="button"
+                        disabled={!toolkit.implemented || !toolkit.configured}
+                        title={toolkit.setupEnv ? `Set ${toolkit.setupEnv}` : undefined}
+                        onClick={() => connect(toolkit).catch((reason: Error) => setError(reason.message))}
+                      >
+                        Connect
+                      </button>
+                    )}
+                    {toolkit.slug === "echo" && mine[0] && (
+                      <form className="echo-run" onSubmit={(event) => event.preventDefault()}>
+                        <input value={echoMessage} onChange={(event) => setEchoMessage(event.target.value)} />
+                        <button
+                          className="button"
+                          type="button"
+                          onClick={() => runEcho(mine[0].id).catch((reason: Error) => setError(reason.message))}
+                        >
+                          Run
+                        </button>
+                      </form>
+                    )}
+                    {toolkit.slug === "echo" && echoResult && <pre className="result">{echoResult}</pre>}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ),
+      )}
+      {visible.length === 0 && <p className="empty">No apps match that search.</p>}
       {draft && (
+        <div className="modal-backdrop">
         <form className="modal" onSubmit={(event) => saveKey(event).catch((reason: Error) => setError(reason.message))}>
           <h2>Connect {draft.name}</h2>
           <label>
@@ -156,6 +189,7 @@ export function ConnectApps() {
             <button className="button" type="submit">Save connection</button>
           </div>
         </form>
+        </div>
       )}
     </section>
   );

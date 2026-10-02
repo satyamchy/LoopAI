@@ -1,10 +1,18 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
-const links = [
-  { to: "/connect/apps", label: "Connect Apps" },
-  { to: "/connect/agents", label: "Connect my agent" },
-  { to: "/chat", label: "Chat" },
+const groups = [
+  {
+    label: "Connect",
+    links: [
+      { to: "/connect/apps", label: "Apps" },
+      { to: "/connect/agents", label: "Agents" },
+    ],
+  },
+  {
+    label: "Use",
+    links: [{ to: "/chat", label: "Chat" }],
+  },
 ];
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -16,10 +24,15 @@ export function Shell({ children }: { children: ReactNode }) {
           <strong>LoopAI</strong>
         </div>
         <nav>
-          {links.map((link) => (
-            <NavLink key={link.to} to={link.to} className={({ isActive }) => (isActive ? "nav active" : "nav")}>
-              {link.label}
-            </NavLink>
+          {groups.map((group) => (
+            <div key={group.label} className="nav-group">
+              <p className="nav-label">{group.label}</p>
+              {group.links.map((link) => (
+                <NavLink key={link.to} to={link.to} className={({ isActive }) => (isActive ? "nav active" : "nav")}>
+                  {link.label}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="workspace">

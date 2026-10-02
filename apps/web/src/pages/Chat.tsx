@@ -165,6 +165,7 @@ export function Chat() {
         <p className="hint">Enter sends. Shift+Enter adds a line.</p>
       </div>
       {showModels && (
+        <div className="modal-backdrop">
         <form className="modal" onSubmit={(event) => addModel(event).catch((reason: Error) => setError(reason.message))}>
           <h2>Add a model</h2>
           <label>
@@ -191,6 +192,7 @@ export function Chat() {
             <button className="button" type="submit">Save model</button>
           </div>
         </form>
+        </div>
       )}
     </section>
   );

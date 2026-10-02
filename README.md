@@ -2,6 +2,31 @@
 
 LoopAI is a local action gateway. A model can call Gmail, Calendar, LinkedIn, Telegram, WhatsApp, and the other connected apps. The model never receives the OAuth token or the API key. The API decrypts a credential, calls the vendor, and returns a redacted result.
 
+## Frontend and backend
+
+They are two programs. Neither imports the other.
+
+| | Frontend | Backend |
+| --- | --- | --- |
+| Folder | `apps/web` | `apps/api` |
+| Package | `@loopai/web` | `@loopai/api` |
+| What it is | React pages in the browser | Hono server on Node |
+| Address | `http://localhost:5173` | `http://localhost:8787` |
+| Holds tokens | No | Yes, encrypted |
+
+`packages/core`, `packages/vault`, `packages/db`, and `packages/toolkits` are libraries. They are not servers. Only the API imports them. The browser never sees those packages.
+
+The pages are `apps/web/src/pages`. Each page calls `api()` in `apps/web/src/api.ts`, which is `fetch("/v1/...")`. Vite proxies `/v1` to port 8787, so the browser stays on 5173. Routes are in `apps/api/src/app.ts`. The full list is [api.md](api.md). Tables are in [db.md](db.md).
+
+A click on Connect follows this path:
+
+1. `ConnectApps.tsx` or `AppDetail.tsx` calls `POST /v1/connections` or `POST /v1/connections/start`.
+2. The API encrypts the secret, or returns the provider login URL.
+3. The provider later redirects to `GET /v1/oauth/callback` on port 8787.
+4. The API stores the token and sends the browser back to `http://localhost:5173/connect/apps/<slug>`.
+
+Chat follows the same split. `Chat.tsx` sends `POST /v1/chat`. The API decrypts the model key, calls the model, runs tools, and returns text. The page only renders that text.
+
 ## How to read the repo
 
 Start at the edges, then follow one request inward.
@@ -25,7 +50,9 @@ corepack pnpm install
 corepack pnpm dev
 ```
 
-The dashboard is `http://localhost:5173`. The API is `http://localhost:8787`.
+Open `http://localhost:5173`. That is the dashboard. The API is `http://localhost:8787` and is reached through the proxy. Swagger UI is `http://localhost:8787/docs`.
+
+Stop both with Ctrl+C in that terminal. Run one side alone with `corepack pnpm --filter @loopai/web dev` or `corepack pnpm --filter @loopai/api dev`. The pages need both.
 
 With no `apps/api/.env`, the API keeps data in memory. Restarting the API clears connections. For a durable workspace, copy `apps/api/.env.example` to `apps/api/.env`, set `DATABASE_URL`, `DIRECT_URL`, and `VAULT_MASTER_KEY`, then run `corepack pnpm db:migrate`.
 

@@ -2,7 +2,41 @@
 
 Postgres holds the workspace, encrypted credentials, chat history, and an audit row for each tool call. The schema is `packages/db/src/migrations/0001_init.sql`. Drizzle maps the tables the API uses in `packages/db/src/schema.ts`.
 
-Without `DATABASE_URL`, the API keeps the same records in memory. Nothing is written to Postgres until you set `DATABASE_URL` and run `corepack pnpm db:migrate`.
+Without `DATABASE_URL`, the API keeps the same records in memory. Nothing is written to Postgres until you set the URLs below and run `corepack pnpm db:migrate`.
+
+## This Supabase project
+
+The direct connection string is:
+
+```text
+postgresql://postgres:[YOUR-PASSWORD]@db.kwjcqhzczzlsugihybgi.supabase.co:5432/postgres
+```
+
+That host and port `5432` are the direct database. Put it in `apps/api/.env` as `DIRECT_URL`. Replace `[YOUR-PASSWORD]` with the database password from the Supabase dashboard. Do not commit that file. `.env` is gitignored.
+
+`DATABASE_URL` is what the API uses while it is running. In the Supabase dashboard, open Connect and copy the Transaction pooler string (port `6543`). If that pooler string is not available yet, the direct string above can be used as `DATABASE_URL` for this one local API process.
+
+The host `db.kwjcqhzczzlsugihybgi.supabase.co` publishes an IPv6 address only. A network without IPv6 cannot open port 5432 on it. The pooler host from the dashboard is the IPv4 path.
+
+Also set `VAULT_MASTER_KEY` before starting the API with `DATABASE_URL`. The API refuses to boot when the database URL is set and the master key is missing.
+
+Changing `schema.ts` does not change Postgres. Drizzle uses that file as the TypeScript map of tables that already exist. A new or renamed column needs a new SQL file and a migrate run:
+
+1. Edit `packages/db/src/schema.ts` so the API and the database description match.
+2. Add `packages/db/src/migrations/0002_short_name.sql` with the `alter table` (or the next number). Do not edit `0001_init.sql` after it has been applied.
+3. From the repo root, with `DIRECT_URL` set, run `corepack pnpm db:migrate`.
+4. Restart the API.
+
+The migrator records each filename in `schema_migrations` and skips a file it has already applied. `0001_init.sql` uses `create table if not exists`, so the first run on an existing database is safe. A later file should assume `0001` has already run.
+
+## `schema_migrations`
+
+Created by `corepack pnpm db:migrate`, not by `0001_init.sql`. The API does not read it.
+
+| Column | Need |
+| --- | --- |
+| `filename` | Primary key. The SQL file name, such as `0001_init.sql`. |
+| `applied_at` | When that file was applied. |
 
 ## Where tokens live
 

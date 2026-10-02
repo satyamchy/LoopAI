@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { swaggerUI } from "@hono/swagger-ui";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { AccountScope, Toolkit } from "@loopai/core";
@@ -7,6 +8,7 @@ import { authorizeUrl, exchangeCode, listCards } from "@loopai/toolkits";
 import { performExecute } from "./execute-request";
 import { hashKey, newAgentKey } from "./keys";
 import { handleMcp } from "./mcp";
+import { openApiDocument } from "./openapi";
 import { modelProviders, providerBaseUrl, runToolLoop } from "./run-tool-loop";
 import type { Store } from "./store";
 
@@ -23,6 +25,9 @@ export function createApp(deps: AppDeps) {
   const app = new Hono();
   const fetchImpl = deps.fetchImpl ?? fetch;
   app.use("*", cors({ origin: deps.webOrigin, allowHeaders: ["content-type", "authorization", "idempotency-key"] }));
+
+  app.get("/openapi.json", (c) => c.json(openApiDocument));
+  app.get("/docs", swaggerUI({ url: "/openapi.json" }));
 
   app.get("/v1/health", (c) => c.json({ ok: true }));
 

@@ -32,46 +32,60 @@ export function ConnectAgents() {
   const snippet = JSON.stringify({ mcpServers: { loopai: { url: mcpUrl, headers: { Authorization: `Bearer ${freshKey ?? "YOUR_KEY"}` } } } }, null, 2);
 
   return (
-    <section>
-      <h1>Connect Agents</h1>
-      <p className="lede">Point Cursor or Claude at this workspace. They call the same tools as chat.</p>
+    <section className="page">
+      <header className="page-head">
+        <div>
+          <h1>Agents</h1>
+          <p>Cursor and Claude call the same tools as chat. The key is shown once.</p>
+        </div>
+      </header>
       {error && <p className="banner error">{error}</p>}
       {freshKey && <p className="banner">Copy this key now. It will not be shown again. <code>{freshKey}</code></p>}
-      <div className="agent-grid">
-        {[
-          ["Cursor", "Cursor"],
-          ["Claude", "Claude"],
-        ].map(([name]) => (
-          <article key={name} className="panel">
-            <h2>{name}</h2>
-            <button className="button" type="button" onClick={() => createKey(name).catch((reason: Error) => setError(reason.message))}>
-              Create key
-            </button>
-          </article>
-        ))}
-        <article className="panel wide">
-          <h2>MCP</h2>
+      <div className="steps">
+        <article className="panel step">
+          <div className="step-head">
+            <span className="step-no">1</span>
+            <h2>Create a key</h2>
+          </div>
+          <div className="step-actions">
+            {["Cursor", "Claude"].map((name) => (
+              <button key={name} className="button" type="button" onClick={() => createKey(name).catch((reason: Error) => setError(reason.message))}>
+                Create {name} key
+              </button>
+            ))}
+          </div>
+          {keys.length > 0 ? (
+            <ul className="key-list">
+              {keys.map((key) => (
+                <li key={key.id}>{key.name} · {key.keyPrefix}…</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty">No keys yet.</p>
+          )}
+        </article>
+        <article className="panel step">
+          <div className="step-head">
+            <span className="step-no">2</span>
+            <h2>Paste this into the agent</h2>
+          </div>
           <label>
-            URL
+            MCP URL
             <input readOnly value={mcpUrl} />
           </label>
           <pre>{snippet}</pre>
         </article>
-        <article className="panel wide">
-          <h2>Call a tool</h2>
+        <article className="panel step">
+          <div className="step-head">
+            <span className="step-no">3</span>
+            <h2>Or call a tool over HTTP</h2>
+          </div>
           <pre>{`curl -X POST ${mcpUrl.replace(/\/mcp$/, "")}/v1/tools/execute \\
   -H "Authorization: Bearer YOUR_KEY" \\
   -H "content-type: application/json" \\
   -d "{\\"toolkit\\":\\"echo\\",\\"action\\":\\"echo\\",\\"arguments\\":{\\"message\\":\\"hello\\"}}"`}</pre>
         </article>
       </div>
-      {keys.length > 0 && (
-        <ul className="key-list">
-          {keys.map((key) => (
-            <li key={key.id}>{key.name} · {key.keyPrefix}…</li>
-          ))}
-        </ul>
-      )}
     </section>
   );
 }

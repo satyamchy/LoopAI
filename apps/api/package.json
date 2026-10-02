@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
+    "@hono/swagger-ui": "^0.6.1",
     "@loopai/core": "workspace:*",
     "@loopai/db": "workspace:*",
     "@loopai/toolkits": "workspace:*",

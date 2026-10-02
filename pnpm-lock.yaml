@@ -20,6 +20,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.8
         version: 1.19.17(hono@4.13.12)
+      '@hono/swagger-ui':
+        specifier: ^0.6.1
+        version: 0.6.1(hono@4.13.12)
       '@loopai/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -520,6 +523,11 @@ packages:
     engines: {node: '>=18.14.1'}
     peerDependencies:
       hono: ^4
+
+  '@hono/swagger-ui@0.6.1':
+    resolution: {integrity: sha512-sJTvldu1GPeEPfyeLG7gRj+W4vEuD+JDi+JjJ3TJs/DvMUtBLs0KJO5yokGegWWdy5qrbdnQGekbhgNRmPmYKQ==}
+    peerDependencies:
+      hono: '>=4.0.0'
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1792,6 +1800,10 @@ snapshots:
     optional: true
 
   '@hono/node-server@1.19.17(hono@4.13.12)':
+    dependencies:
+      hono: 4.13.12
+
+  '@hono/swagger-ui@0.6.1(hono@4.13.12)':
     dependencies:
       hono: 4.13.12
 

@@ -15,14 +15,17 @@ export function AppDetail() {
   const [busy, setBusy] = useState(false);
 
   async function reload() {
-    const [catalog, linked] = await Promise.all([
-      api<{ toolkits: ToolkitCard[] }>("/v1/toolkits"),
-      api<{ connections: Connection[] }>("/v1/connections"),
-    ]);
+    const catalog = await api<{ toolkits: ToolkitCard[] }>("/v1/toolkits");
     const found = catalog.toolkits.find((item) => item.slug === slug) ?? null;
     setToolkit(found);
-    setConnections(linked.connections.filter((item) => item.toolkitSlug === slug));
     if (!found) setError("This app is not in the catalog.");
+    try {
+      const linked = await api<{ connections: Connection[] }>("/v1/connections");
+      setConnections(linked.connections.filter((item) => item.toolkitSlug === slug));
+    } catch (reason) {
+      setConnections([]);
+      setError(reason instanceof Error ? reason.message : "Connections could not be loaded.");
+    }
   }
 
   useEffect(() => {
@@ -86,7 +89,7 @@ export function AppDetail() {
   const blocked = !toolkit.implemented || (toolkit.authType === "oauth2" && !toolkit.configured);
 
   return (
-    <section className="detail">
+    <section className="detail page">
       <Link className="back" to="/connect/apps">← All Apps</Link>
       <header className="page-head">
         <div className="card-main">
@@ -156,15 +159,6 @@ export function AppDetail() {
         {toolkit.authType === "none" && connections.length === 0 && <p className="empty">Ready. No account is required.</p>}
       </div>
 
-      <details className="things" open>
-        <summary>Things you can do once {toolkit.displayName} is connected</summary>
-        <ul>
-          {toolkit.actions.map((action) => (
-            <li key={action.slug}>{action.description}</li>
-          ))}
-        </ul>
-      </details>
-
       <div className="toolbar">
         <h2>Available actions ({toolkit.actions.length})</h2>
         <input className="search" placeholder="Search actions..." value={query} onChange={(event) => setQuery(event.target.value)} />
@@ -172,7 +166,11 @@ export function AppDetail() {
       <div className="action-list">
         {actions.map((action) => (
           <article key={action.slug} className="panel">
-            <h2>{titleCase(action.slug)}</h2>
+            <div className="account-meta">
+              <h2>{titleCase(action.slug)}</h2>
+              <small>{action.risk ?? "read"}</small>
+            </div>
+            <p><code>{action.slug}</code></p>
             <p>{action.description}</p>
           </article>
         ))}
