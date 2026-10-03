@@ -16,7 +16,7 @@ They are two programs. Neither imports the other.
 
 `packages/core`, `packages/vault`, `packages/db`, and `packages/toolkits` are libraries. They are not servers. Only the API imports them. The browser never sees those packages.
 
-The pages are `apps/web/src/pages`. Each page calls `api()` in `apps/web/src/api.ts`, which is `fetch("/v1/...")`. Vite proxies `/v1` to port 8787, so the browser stays on 5173. Routes are in `apps/api/src/app.ts` and `apps/api/src/auth-routes.ts`. The full list is [api.md](api.md). Tables are in [db.md](db.md). How each app authenticates is [packages/toolkits/README.md](packages/toolkits/README.md).
+The pages are `apps/web/src/pages`. Each page calls `api()` in `apps/web/src/api.ts`, which is `fetch("/v1/...")`. Vite proxies `/v1` to port 8787, so the browser stays on 5173. Routes are in `apps/api/src/app.ts` and `apps/api/src/auth-routes.ts`. The full list is [api.md](api.md). Tables are in [db.md](db.md). How each app authenticates is [packages/toolkits/README.md](packages/toolkits/README.md). To run one process off this computer, see [DEPLOY.md](DEPLOY.md).
 
 A click on Connect follows this path:
 
@@ -52,7 +52,7 @@ corepack pnpm dev
 
 Open `http://localhost:5173`. Signed out, that is the start page. **Log in** and **Get started** open a sign-in dialog on that page. After sign-in the address is `http://localhost:5173/<username>_workspace/~/connect/clients/chatgpt`. Apps, chat, help, and settings sit under the same `/<username>_workspace/~/` prefix. The signed-in pages use a warm dark background with the orange accent. Chat keeps its own dark pane, and its list appears only there. Delete on a chat removes that conversation. The API is `http://localhost:8787` and is reached through the proxy. Swagger UI is `http://localhost:8787/docs`.
 
-Stop both with Ctrl+C in that terminal. Run one side alone with `corepack pnpm --filter @loopai/web dev` or `corepack pnpm --filter @loopai/api dev`. The pages need both.
+Stop both with Ctrl+C in that terminal. Run one side alone with `corepack pnpm --filter @loopai/web dev` or `corepack pnpm --filter @loopai/api dev`. The pages need both. To run this off the computer, see [DEPLOY.md](DEPLOY.md).
 
 With no `apps/api/.env`, the API keeps data in memory. Restarting the API clears connections. For a durable workspace, copy `apps/api/.env.example` to `apps/api/.env`, set `DATABASE_URL`, `DIRECT_URL`, and `VAULT_MASTER_KEY`, then run `corepack pnpm db:migrate`.
 

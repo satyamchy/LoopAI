@@ -32,7 +32,7 @@ describe("execute", () => {
     const account = await connected.json();
     const row = await store.getAccount(account.id);
     expect(row?.encryptedCredentials).not.toContain(secret);
-    expect(await store.decrypt(row!.encryptedCredentials)).toEqual({ secret });
+    expect(await store.decrypt(row!.workspaceId, row!.encryptedCredentials)).toEqual({ secret });
 
     const executed = await app.request("/v1/tools/execute", {
       method: "POST",
@@ -149,6 +149,9 @@ describe("agent keys", () => {
     const text = await initialized.text();
     expect(initialized.status).toBeLessThan(400);
     expect(text).toContain("loopai");
+    const seen = await (await app.request("/v1/agent-keys")).json();
+    expect(seen.keys[0]).toMatchObject({ clientName: "test", clientVersion: "0.0.1" });
+    expect(seen.keys[0].lastSeenAt).toEqual(expect.any(String));
   });
 });
 
@@ -164,6 +167,34 @@ describe("chats", () => {
     expect(listed.conversations).toEqual([]);
     const missing = await app.request(`/v1/conversations/${created.id}`, { method: "DELETE" });
     expect(missing.status).toBe(404);
+  });
+});
+
+describe("workspaces", () => {
+  test("a second signup does not see the first user's connection", async () => {
+    const store = createMemoryStore(master);
+    const app = createApp({ store, toolkits, publicUrl: "http://localhost:8787", webOrigin: "http://localhost:5173" });
+    const first = await app.request("/v1/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "firstuser", password: "password1" }),
+    });
+    const firstCookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
+    await app.request("/v1/connections", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: firstCookie },
+      body: JSON.stringify({ toolkit: "echo", secret: "echo-secret-value" }),
+    });
+    const second = await app.request("/v1/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "seconduser", password: "password2" }),
+    });
+    const secondCookie = (second.headers.get("set-cookie") ?? "").split(";")[0];
+    const listed = await (await app.request("/v1/connections", { headers: { cookie: secondCookie } })).json();
+    expect(listed.connections).toEqual([]);
+    const me = await (await app.request("/v1/auth/me", { headers: { cookie: secondCookie } })).json();
+    expect(me.role).toBe("owner");
   });
 });
 

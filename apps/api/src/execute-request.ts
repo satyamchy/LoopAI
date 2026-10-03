@@ -12,6 +12,9 @@ export type ExecuteInput = {
   args: unknown;
   connectedAccountId?: string | null;
   idempotencyKey?: string | null;
+  /** A write-scoped agent key, or a person who already pressed Confirm. */
+  confirmed?: boolean;
+  conversationId?: string | null;
 };
 
 type Deps = { store: Store; toolkits: Toolkit[] };
@@ -40,11 +43,25 @@ export async function performExecute(deps: Deps, input: ExecuteInput): Promise<{
   const started = Date.now();
   let credentials: Record<string, unknown> = {};
   if (account.row) {
-    credentials = (await deps.store.decrypt(account.row.encryptedCredentials)) as Record<string, unknown>;
-    credentials = await refreshIfNeeded(deps.store, toolkit, account.row.id, credentials);
+    credentials = (await deps.store.decrypt(account.row.workspaceId, account.row.encryptedCredentials)) as Record<string, unknown>;
+    credentials = await refreshIfNeeded(deps.store, toolkit, account.row.id, account.row.workspaceId, credentials);
   }
   const blocked = await attachExtras(deps, toolkit, input, credentials);
   if (blocked) return blocked;
+  const action = toolkit.actions.find((item) => item.slug === input.action);
+  if (action?.confirm && !input.confirmed) {
+    const saved = await deps.store.insertApproval({
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId ?? null,
+      toolkitSlug: toolkit.slug,
+      action: input.action,
+      connectedAccountId: account.row?.id ?? input.connectedAccountId ?? null,
+      argsEncrypted: await deps.store.encrypt(input.workspaceId, input.args ?? {}),
+      summary: `${toolkit.displayName} ${input.action}`,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    });
+    return { http: 202, body: { status: "pending", approvalId: saved.id, summary: saved.summary } };
+  }
   const secrets = secretStrings(credentials);
 
   try {
@@ -94,33 +111,54 @@ async function attachExtras(
   if (toolkit.slug === "notes" || toolkit.slug === "manuscript") {
     credentials.notePort = notePortFor(deps.store, input.workspaceId, toolkit.slug === "manuscript" ? "chapter" : "note");
   }
+  if (toolkit.slug === "jobs" && input.action === "save_application") {
+    credentials.notePort = notePortFor(deps.store, input.workspaceId, "application");
+  }
   if (toolkit.slug === "profile" && input.action === "send_intro") {
+    const picked = await pickAccount(deps, input, "gmail", hint(input.args, "gmailAccount"));
+    if ("error" in picked) return picked.error;
+    if (!picked.row) return { http: 400, body: { error: "Connect Gmail before sending an intro email." } };
     const gmail = deps.toolkits.find((item) => item.slug === "gmail");
-    const accounts = (await deps.store.listAccounts(input.workspaceId)).filter((item) => item.toolkitSlug === "gmail" && item.status === "active");
-    const row = accounts[0] ? await deps.store.getAccount(accounts[0].id) : null;
-    if (!gmail || !row) return { http: 400, body: { error: "Connect Gmail before sending an intro email." } };
-    let gmailCredentials = (await deps.store.decrypt(row.encryptedCredentials)) as Record<string, unknown>;
-    gmailCredentials = await refreshIfNeeded(deps.store, gmail, row.id, gmailCredentials);
+    if (!gmail) return { http: 400, body: { error: "Connect Gmail before sending an intro email." } };
+    let gmailCredentials = (await deps.store.decrypt(picked.row.workspaceId, picked.row.encryptedCredentials)) as Record<string, unknown>;
+    gmailCredentials = await refreshIfNeeded(deps.store, gmail, picked.row.id, picked.row.workspaceId, gmailCredentials);
     if (typeof gmailCredentials.access_token !== "string") return { http: 400, body: { error: "Reconnect Gmail." } };
     credentials.gmailAccessToken = gmailCredentials.access_token;
   }
-  if (toolkit.slug === "review" && input.action === "analyze") {
-    const accounts = await deps.store.listAccounts(input.workspaceId);
-    const profileRow = accounts.find((item) => item.toolkitSlug === "profile" && item.status === "active");
-    const savedRow = profileRow ? await deps.store.getAccount(profileRow.id) : null;
-    if (savedRow) {
-      const saved = (await deps.store.decrypt(savedRow.encryptedCredentials)) as Record<string, unknown>;
+  if ((toolkit.slug === "review" && input.action === "analyze") || (toolkit.slug === "jobs" && input.action === "search")) {
+    const profile = await pickAccount(deps, input, "profile", hint(input.args, "profileAccount"));
+    if ("error" in profile) return profile.error;
+    if (profile.row) {
+      const saved = (await deps.store.decrypt(profile.row.workspaceId, profile.row.encryptedCredentials)) as Record<string, unknown>;
       credentials.profileName = saved.fullName;
       credentials.profileAbout = saved.about;
       credentials.profileEmail = saved.email;
+      credentials.profileHeadline = saved.headline;
+      credentials.profileSkills = saved.skills;
+      credentials.profileExperience = saved.experience;
+      credentials.profileResume = saved.resumeText;
     }
-    const linkedin = deps.toolkits.find((item) => item.slug === "linkedin");
-    const linked = accounts.filter((item) => item.toolkitSlug === "linkedin" && item.status === "active");
-    const linkedRow = linked[0] ? await deps.store.getAccount(linked[0].id) : null;
-    if (linkedin && linkedRow) {
+  }
+  if (toolkit.slug === "review" && input.action === "analyze") {
+    const github = await pickAccount(deps, input, "github", hint(input.args, "githubAccount"));
+    if ("error" in github) return github.error;
+    if (github.row) {
+      const githubToolkit = deps.toolkits.find((item) => item.slug === "github");
       try {
-        let linkedCredentials = (await deps.store.decrypt(linkedRow.encryptedCredentials)) as Record<string, unknown>;
-        linkedCredentials = await refreshIfNeeded(deps.store, linkedin, linkedRow.id, linkedCredentials);
+        let githubCredentials = (await deps.store.decrypt(github.row.workspaceId, github.row.encryptedCredentials)) as Record<string, unknown>;
+        if (githubToolkit) githubCredentials = await refreshIfNeeded(deps.store, githubToolkit, github.row.id, github.row.workspaceId, githubCredentials);
+        if (typeof githubCredentials.access_token === "string") credentials.githubAccessToken = githubCredentials.access_token;
+      } catch {
+        // A dead GitHub token leaves the typed login as the fallback.
+      }
+    }
+    const linkedin = await pickAccount(deps, input, "linkedin", hint(input.args, "linkedinAccount"));
+    if ("error" in linkedin) return linkedin.error;
+    const linkedinToolkit = deps.toolkits.find((item) => item.slug === "linkedin");
+    if (linkedin.row && linkedinToolkit) {
+      try {
+        let linkedCredentials = (await deps.store.decrypt(linkedin.row.workspaceId, linkedin.row.encryptedCredentials)) as Record<string, unknown>;
+        linkedCredentials = await refreshIfNeeded(deps.store, linkedinToolkit, linkedin.row.id, linkedin.row.workspaceId, linkedCredentials);
         if (typeof linkedCredentials.access_token === "string") credentials.linkedinAccessToken = linkedCredentials.access_token;
       } catch {
         // A dead LinkedIn token leaves that section missing. GitHub and the site still return.
@@ -136,7 +174,7 @@ async function attachExtras(
   return null;
 }
 
-function notePortFor(store: Store, workspaceId: string, kind: "note" | "chapter"): NotePort {
+function notePortFor(store: Store, workspaceId: string, kind: "note" | "chapter" | "application"): NotePort {
   return {
     async save(input) {
       const saved = await store.insertNote({ workspaceId, kind: input.kind, title: input.title, body: input.body });
@@ -178,7 +216,35 @@ async function resolveAccount(
   return { http: 400, body: { error: "Pass connectedAccountId. More than one account is connected." } };
 }
 
-async function refreshIfNeeded(store: Store, toolkit: Toolkit, accountId: string, credentials: Record<string, unknown>) {
+function hint(args: unknown, key: string): string | null {
+  if (!args || typeof args !== "object") return null;
+  const value = (args as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+async function pickAccount(
+  deps: Deps,
+  input: ExecuteInput,
+  slug: string,
+  preferred: string | null,
+): Promise<{ row: Awaited<ReturnType<Store["getAccount"]>> } | { error: { http: number; body: Record<string, unknown> } }> {
+  const matches = (await deps.store.listAccounts(input.workspaceId)).filter((item) => item.toolkitSlug === slug && item.status === "active");
+  if (preferred) {
+    const needle = preferred.replace(/-/g, "").toLowerCase();
+    const found = matches.find((item) => item.id === preferred || item.id.replace(/-/g, "").toLowerCase().startsWith(needle) || item.externalLabel?.toLowerCase() === preferred.toLowerCase());
+    if (!found) return { error: { http: 400, body: { error: `No ${slug} account matches ${preferred}.`, accounts: matches.map(labelOf) } } };
+    return { row: await deps.store.getAccount(found.id) };
+  }
+  if (matches.length === 1) return { row: await deps.store.getAccount(matches[0].id) };
+  if (matches.length === 0) return { row: null };
+  return { error: { http: 400, body: { error: `More than one ${slug} account is connected.`, accounts: matches.map(labelOf) } } };
+}
+
+function labelOf(account: { id: string; externalLabel: string | null }): { id: string; label: string | null } {
+  return { id: account.id, label: account.externalLabel };
+}
+
+async function refreshIfNeeded(store: Store, toolkit: Toolkit, accountId: string, workspaceId: string, credentials: Record<string, unknown>) {
   if (!toolkit.oauth || typeof credentials.refresh_token !== "string" || typeof credentials.expires_at !== "string") return credentials;
   const expires = Date.parse(credentials.expires_at);
   if (!Number.isFinite(expires) || expires > Date.now() + 60_000) return credentials;
@@ -190,7 +256,7 @@ async function refreshIfNeeded(store: Store, toolkit: Toolkit, accountId: string
       refresh_token: next.refresh_token,
       expires_at: next.expires_at,
     };
-    await store.updateAccountCredentials(accountId, await store.encrypt(merged), next.expires_at);
+    await store.updateAccountCredentials(accountId, await store.encrypt(workspaceId, merged), next.expires_at);
     return merged;
   });
 }

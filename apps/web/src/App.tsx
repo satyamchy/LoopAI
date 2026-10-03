@@ -4,6 +4,7 @@ import { api, type SessionUser } from "./api";
 import { workspaceHome, workspaceSlug } from "./paths";
 import { Shell } from "./Shell";
 import { AppDetail } from "./pages/AppDetail";
+import { Activity } from "./pages/Activity";
 import { Chat } from "./pages/Chat";
 import { ConnectAgents } from "./pages/ConnectAgents";
 import { ConnectApps } from "./pages/ConnectApps";
@@ -31,7 +32,7 @@ function SignedIn() {
   if (!user) return <Landing />;
 
   const base = workspaceHome(user.username);
-  const clients = `${base}/connect/clients/chatgpt`;
+  const clients = `${base}/connect/clients`;
 
   return (
     <Shell user={user}>
@@ -45,11 +46,12 @@ function SignedIn() {
         <Route path="/help" element={<Navigate to={`${base}/help`} replace />} />
         <Route path="/settings" element={<Navigate to={`${base}/settings`} replace />} />
         <Route path="/:workspace/~" element={<InWorkspace user={user}><ConnectAgents /></InWorkspace>} />
-        <Route path="/:workspace/~/connect/clients" element={<Navigate to="chatgpt" replace />} />
+        <Route path="/:workspace/~/connect/clients" element={<InWorkspace user={user}><ConnectAgents /></InWorkspace>} />
         <Route path="/:workspace/~/connect/clients/:client" element={<InWorkspace user={user}><ConnectAgents /></InWorkspace>} />
         <Route path="/:workspace/~/connect/apps" element={<InWorkspace user={user}><ConnectApps /></InWorkspace>} />
         <Route path="/:workspace/~/connect/apps/:slug" element={<InWorkspace user={user}><AppDetail /></InWorkspace>} />
         <Route path="/:workspace/~/chat" element={<InWorkspace user={user}><Chat /></InWorkspace>} />
+        <Route path="/:workspace/~/activity" element={<InWorkspace user={user}><Activity /></InWorkspace>} />
         <Route path="/:workspace/~/help" element={<InWorkspace user={user}><Help /></InWorkspace>} />
         <Route path="/:workspace/~/settings" element={<InWorkspace user={user}><Settings /></InWorkspace>} />
       </Routes>

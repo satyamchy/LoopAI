@@ -512,4 +512,43 @@ These objects are `arguments` inside `POST /v1/tools/execute`. Omitted optional 
 
 ## MCP
 
-`/mcp` speaks the Model Context Protocol over HTTP. `Authorization: Bearer lai_...` is required. Tools registered there are the same actions as chat, for accounts already connected in the workspace. The initialize body is in [Request payloads](#request-payloads).
+`/mcp` speaks the Model Context Protocol over HTTP. `Authorization: Bearer lai_...` is required. Tools registered there are the same actions as chat, for accounts already connected in the workspace. A key without the `write` scope does not receive send, post, or other confirm actions. The initialize body is in [Request payloads](#request-payloads). That handshake's `clientInfo` is stored on the key. `GET /v1/agent-keys` returns `clientName`, `clientVersion`, and `lastSeenAt` so the dashboard can list agents that have connected. A new client is a new key. It does not need a code change.
+
+## Added routes
+
+Signup creates that user's workspace. `GET /v1/auth/me` includes `role`. `GET /v1/workspaces` lists memberships. `POST /v1/workspace/switch` body `{ "workspaceId": "..." }`. `POST /v1/workspace/invites` body `{ "username": "..." }` is owner-only.
+
+`GET /v1/executions` lists recent tool runs for the active workspace. Results are already redacted.
+
+`POST /v1/chat` accepts `stream: true` and answers with server-sent events `delta`, `pending`, and `done`. Without `stream`, the JSON body is unchanged. A confirm action returns `pending` instead of calling the vendor. `POST /v1/chat/confirm` body `{ "approvalId": "...", "accept": true, "llmConnectionId": "..." }`. Direct `POST /v1/tools/execute` of a confirm action returns `202` with `approvalId` unless the caller is a write-scoped agent key.
+
+`POST /v1/agent-keys` accepts `write: true` and `expiresInDays` of `7`, `30`, or `90`. The default scope is `read` and the default expiry is until revoke.
+
+`POST /v1/auth/forgot` body `{ "username": "..." }`. `503` when SMTP is not configured. Otherwise the same sentence whether or not the account exists. `POST /v1/auth/reset` body `{ "token": "...", "password": "..." }`. `POST /v1/auth/verify` body `{ "token": "..." }`. Register accepts an optional `email`.
+
+Chat sends at most 16 matching tools plus `search_tools` when more actions exist. Tool results are clipped at 16,000 characters. History is the last 40 messages.
+
+External writes that wait for confirm: Gmail send, intro email, WhatsApp, Telegram send, Canva, Custom MCP `call_tool`, Slack post, Outlook send, Teams post, Jira create, GitHub create issue, Calendar create, Sheets update, Twitter post, Notion create, HubSpot create, Linear create. Notes and manuscript do not wait.
+
+New tool arguments:
+
+| Toolkit | Action | Arguments |
+| --- | --- | --- |
+| `slack` | `post_message` | `{ "channel": "C123", "text": "Hello" }`. |
+| `outlook` | `send_mail` | `{ "to": "a@b.c", "subject": "Hi", "body": "Plain text" }`. |
+| `google-drive` | `read_file` | `{ "fileId": "..." }`. |
+| `teams` | `send_channel_message` | `{ "teamId": "...", "channelId": "...", "text": "Hello" }`. |
+| `jira` | `create_issue` | `{ "projectKey": "ENG", "summary": "Bug", "description": "Optional" }`. |
+| `github` | `create_issue` | `{ "owner": "octocat", "repo": "hello", "title": "Bug" }`. |
+| `google-calendar` | `create_event` | `{ "summary": "Standup", "start": "2026-10-03T10:00:00Z", "end": "2026-10-03T10:30:00Z" }`. |
+| `google-sheets` | `update_values` | `{ "spreadsheetId": "abc", "range": "Sheet1!A1", "values": [["a"]] }`. |
+| `twitter` | `post_tweet` | `{ "text": "Hello" }`. |
+| `jobs` | `save_application` | `{ "company": "Acme", "role": "Engineer", "url": "https://example.com/job" }`. |
+| `notion` | `search` | `{ "query": "roadmap" }`. |
+| `notion` | `create_page` | `{ "parentId": "...", "title": "Notes" }`. |
+| `hubspot` | `list_contacts` | `{ "limit": 10 }`. |
+| `hubspot` | `create_contact` | `{ "email": "a@b.c", "firstName": "Ada" }`. |
+| `linear` | `list_issues` | `{}`. |
+| `linear` | `create_issue` | `{ "teamId": "...", "title": "Bug" }`. |
+
+`review.analyze` also accepts `profileAccount`, `githubAccount`, and `linkedinAccount` when more than one of that app is connected. A connected GitHub account is used when no login is typed. Profile may include `headline`, `skills`, `experience`, and `resumeText`.

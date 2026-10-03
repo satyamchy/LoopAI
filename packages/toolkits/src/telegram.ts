@@ -44,6 +44,7 @@ export const telegram: Toolkit = {
       slug: "send_message",
       description: "Send a text message to a chat id.",
       risk: "write",
+      confirm: true,
       input: z.object({ chatId: z.string().min(1), text: z.string().min(1).max(4000) }),
       async run(args, token) {
         const data = await telegramJson(token!, "sendMessage", { chat_id: args.chatId, text: args.text });

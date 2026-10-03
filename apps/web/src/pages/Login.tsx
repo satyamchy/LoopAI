@@ -5,7 +5,9 @@ import { workspaceHome } from "../paths";
 
 export function LoginDialog({ onClose }: { onClose: () => void }) {
   const [params] = useSearchParams();
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "forgot" | "reset">(params.get("reset") ? "reset" : "login");
+  const [email, setEmail] = useState("");
+  const [note, setNote] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [google, setGoogle] = useState(false);
@@ -14,10 +16,16 @@ export function LoginDialog({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     api<{ google: boolean }>("/v1/auth/config").then((body) => setGoogle(body.google)).catch((reason: Error) => setError(reason.message));
+    const verify = params.get("verify");
+    if (verify) {
+      api("/v1/auth/verify", { method: "POST", body: JSON.stringify({ token: verify }) })
+        .then(() => setNote("Email verified. You can sign in."))
+        .catch((reason: Error) => setError(reason.message));
+    }
     const code = params.get("code");
     if (!code) return;
     api<SessionUser>("/v1/auth/google/finish", { method: "POST", body: JSON.stringify({ code }) })
-      .then((user) => { window.location.assign(`${workspaceHome(user.username)}/connect/clients/chatgpt`); })
+      .then((user) => { window.location.assign(`${workspaceHome(user.username)}/connect/clients`); })
       .catch((reason: Error) => setError(reason.message));
   }, [params]);
 
@@ -34,11 +42,29 @@ export function LoginDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const user = await api<SessionUser>(`/v1/auth/${mode === "login" ? "login" : "register"}`, {
+      if (mode === "forgot") {
+        const body = await api<{ message: string }>("/v1/auth/forgot", { method: "POST", body: JSON.stringify({ username }) });
+        setNote(body.message);
+        setBusy(false);
+        return;
+      }
+      if (mode === "reset") {
+        await api("/v1/auth/reset", { method: "POST", body: JSON.stringify({ token: params.get("reset"), password }) });
+        setNote("Password updated. Sign in.");
+        setMode("login");
+        setBusy(false);
+        return;
+      }
+      const user = await api<SessionUser & { pending?: string }>(`/v1/auth/${mode === "login" ? "login" : "register"}`, {
         method: "POST",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, email: email || undefined }),
       });
-      window.location.assign(`${workspaceHome(user.username)}/connect/clients/chatgpt`);
+      if (user.pending === "verify") {
+        setNote("Check your email to verify this account.");
+        setBusy(false);
+        return;
+      }
+      window.location.assign(`${workspaceHome(user.username)}/connect/clients`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not sign in.");
       setBusy(false);
@@ -61,23 +87,35 @@ export function LoginDialog({ onClose }: { onClose: () => void }) {
         <span className="grid h-8 w-8 place-items-center rounded-md bg-orange-500 font-bold text-white">L</span>
         <button className="text-sm text-stone-500" type="button" onClick={onClose}>Close</button>
       </div>
-      <h1 className="text-2xl font-semibold">{mode === "login" ? "Sign in to LoopAI" : "Create your account"}</h1>
+      <h1 className="text-2xl font-semibold">{mode === "login" ? "Sign in to LoopAI" : mode === "forgot" ? "Reset password" : mode === "reset" ? "Choose a new password" : "Create your account"}</h1>
       <p className="text-stone-600">Username and password, or Google. The dashboard stays on this browser session.</p>
       {error && <p className="border border-red-200 bg-red-50 px-3 py-2">{error}</p>}
-      <label className="grid gap-1 text-sm">
-        Username
-        <input className="rounded-none border border-stone-300 bg-white px-2.5 py-2 text-stone-900" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required minLength={3} />
-      </label>
-      <label className="grid gap-1 text-sm">
-        Password
-        <input className="rounded-none border border-stone-300 bg-white px-2.5 py-2 text-stone-900" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={8} />
-      </label>
-      <button className="rounded-md bg-orange-500 px-3 py-2 font-semibold text-white disabled:bg-stone-300" type="submit" disabled={busy}>{mode === "login" ? "Sign in" : "Create account"}</button>
+      {note && <p className="border border-stone-200 bg-stone-50 px-3 py-2">{note}</p>}
+      {mode !== "reset" && (
+        <label className="grid gap-1 text-sm">
+          Username
+          <input className="rounded-none border border-stone-300 bg-white px-2.5 py-2 text-stone-900" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required minLength={3} />
+        </label>
+      )}
+      {mode === "register" && (
+        <label className="grid gap-1 text-sm">
+          Email (optional)
+          <input className="rounded-none border border-stone-300 bg-white px-2.5 py-2 text-stone-900" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+        </label>
+      )}
+      {mode !== "forgot" && (
+        <label className="grid gap-1 text-sm">
+          Password
+          <input className="rounded-none border border-stone-300 bg-white px-2.5 py-2 text-stone-900" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={8} />
+        </label>
+      )}
+      <button className="rounded-md bg-orange-500 px-3 py-2 font-semibold text-white disabled:bg-stone-300" type="submit" disabled={busy}>{mode === "login" ? "Sign in" : mode === "forgot" ? "Send reset link" : mode === "reset" ? "Update password" : "Create account"}</button>
       <button className="rounded-md border border-stone-300 bg-white px-3 py-2" type="button" disabled={busy} onClick={startGoogle}>Continue with Google</button>
       {!google && <p className="text-sm text-stone-500">Google stays off until GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set, and the Google app allows http://localhost:8787/v1/auth/google/callback.</p>}
       <button className="text-left text-sm text-stone-500" type="button" onClick={() => setMode(mode === "login" ? "register" : "login")}>
         {mode === "login" ? "Need an account? Create one" : "Already have an account? Sign in"}
       </button>
+      {mode === "login" && <button className="text-left text-sm text-stone-500" type="button" onClick={() => setMode("forgot")}>Forgot password</button>}
     </form>
   );
 }

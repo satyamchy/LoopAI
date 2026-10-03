@@ -20,7 +20,7 @@ async function testApp(fetchImpl?: typeof fetch) {
   return { app, store };
 }
 
-async function execute(app: { request: (input: string, init?: RequestInit) => Promise<Response> }, body: unknown) {
+async function execute(app: { request: (input: string, init?: RequestInit) => Response | Promise<Response> }, body: unknown) {
   return app.request("/v1/tools/execute", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -86,7 +86,7 @@ describe("product checks", () => {
       scope: "user",
       externalLabel: "Gmail",
       expiresAt: null,
-      encryptedCredentials: await store.encrypt({ access_token: token }),
+      encryptedCredentials: await store.encrypt(workspace.id, { access_token: token }),
     });
     const profile = await (await app.request("/v1/connections", {
       method: "POST",
@@ -102,11 +102,19 @@ describe("product checks", () => {
         },
       }),
     })).json();
-    const sent = await execute(app, {
+    const pending = await execute(app, {
       toolkit: "profile",
       action: "send_intro",
       arguments: { to: "hr@example.com" },
       connectedAccountId: profile.id,
+    });
+    const waiting = await pending.json();
+    expect(pending.status).toBe(202);
+    expect(calls).toHaveLength(0);
+    const sent = await app.request("/v1/chat/confirm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approvalId: waiting.approvalId, accept: true }),
     });
     const body = await sent.json();
     expect(sent.status).toBe(200);

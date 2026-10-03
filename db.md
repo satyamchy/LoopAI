@@ -8,6 +8,8 @@ Postgres holds the workspace, logins, encrypted credentials, notes, chat history
 | `0002_login.sql` | `username`, `password_hash`, `display_name`, `google_sub` on `users`. |
 | `0003_rls.sql` | Row level security on the public tables, with no anon policy. |
 | `0004_notes.sql` | `notes` for saved notes and manuscript chapters. RLS on, no anon policy. |
+| `0005_isolation.sql` | Session workspace, agent key scopes and expiry, email verification, password reset, tool approvals. RLS on the new tables, no anon policy. |
+| `0006_agent_clients.sql` | Agent key columns for the MCP client name, version, and last connection. |
 
 Drizzle maps the tables the API uses in `packages/db/src/schema.ts`.
 
@@ -69,7 +71,7 @@ The raw token is never a column. The API encrypts it with the workspace data key
 
 ### `workspaces`
 
-One row per workspace. Today the API creates a single row named "My workspace".
+One row per workspace. Signup creates a workspace for that user. A later member of an existing shared workspace is moved onto a new empty workspace the next time the API starts.
 
 | Column | Need |
 | --- | --- |

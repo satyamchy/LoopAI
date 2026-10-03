@@ -7,6 +7,7 @@ export function defineAction<S extends z.ZodTypeAny>(def: {
   slug: string;
   description: string;
   risk: Risk;
+  confirm?: boolean;
   input: S;
   /**
    * `token` is the OAuth access token, or null for tools that do not use one.
@@ -20,6 +21,7 @@ export function defineAction<S extends z.ZodTypeAny>(def: {
     slug: def.slug,
     description: def.description,
     risk: def.risk,
+    confirm: def.confirm,
     parameters,
     schema: def.input,
     async run(args, token, credentials) {

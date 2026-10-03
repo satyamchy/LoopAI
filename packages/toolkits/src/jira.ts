@@ -7,12 +7,12 @@ import { bearerJson } from "./http";
 export const jira: Toolkit = {
   slug: "jira",
   displayName: "Jira",
-  description: "List recent Jira issues.",
+  description: "List recent Jira issues and create one.",
   authType: "oauth2",
   oauth: {
     authorizationUrl: "https://auth.atlassian.com/authorize",
     tokenUrl: "https://auth.atlassian.com/oauth/token",
-    scopes: ["read:jira-work", "offline_access"],
+    scopes: ["read:jira-work", "write:jira-work", "offline_access"],
     clientIdEnv: "JIRA_CLIENT_ID",
     clientSecretEnv: "JIRA_CLIENT_SECRET",
     tokenRequest: "json",
@@ -40,6 +40,35 @@ export const jira: Toolkit = {
             return { key: row.key, summary: row.fields?.summary ?? null };
           }),
         };
+      },
+    }),
+    defineAction({
+      slug: "create_issue",
+      description: "Create an issue in a project key. Returns the new issue key.",
+      risk: "write",
+      confirm: true,
+      input: z.object({
+        projectKey: z.string().min(1).max(20),
+        summary: z.string().min(1).max(200),
+        description: z.string().max(4000).optional(),
+      }),
+      async run(args, token) {
+        const resources = await bearerJson("https://api.atlassian.com/oauth/token/accessible-resources", token!);
+        const sites = Array.isArray(resources) ? resources : [];
+        const cloudId = (sites[0] as { id?: string } | undefined)?.id;
+        if (!cloudId) throw new Error("No Jira site is available on this account.");
+        const data = await bearerJson(`https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/issue`, token!, {
+          method: "POST",
+          body: JSON.stringify({
+            fields: {
+              project: { key: args.projectKey },
+              summary: args.summary,
+              issuetype: { name: "Task" },
+              ...(args.description ? { description: { type: "doc", version: 1, content: [{ type: "paragraph", content: [{ type: "text", text: args.description }] }] } } : {}),
+            },
+          }),
+        });
+        return { key: typeof data.key === "string" ? data.key : null };
       },
     }),
   ],

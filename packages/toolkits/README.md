@@ -8,14 +8,14 @@ OAuth apps stay disabled until both client env vars are set in `apps/api/.env`. 
 | --- | --- | --- | --- | --- |
 | LoopAI Echo | `src/echo.ts` | API key | Any secret of 8+ characters on the app page | `echo` repeats a message and does not return the secret |
 | Gmail | `src/gmail.ts` | OAuth | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | `list_messages`, `send_email` |
-| Slack | `src/slack.ts` | OAuth | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | `list_channels` |
-| Outlook | `src/outlook.ts` | OAuth | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` | `list_messages` |
-| Google Drive | `src/google-drive.ts` | OAuth | Same Google pair as Gmail | `list_files` |
-| Microsoft Teams | `src/teams.ts` | OAuth | Same Microsoft pair as Outlook | `list_teams` |
-| Jira | `src/jira.ts` | OAuth | `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET` | `list_issues` |
-| GitHub | `src/github.ts` | OAuth | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | `list_repos` |
+| Slack | `src/slack.ts` | OAuth | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | `list_channels`, `post_message` |
+| Outlook | `src/outlook.ts` | OAuth | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` | `list_messages`, `send_mail` |
+| Google Drive | `src/google-drive.ts` | OAuth | Same Google pair as Gmail | `list_files`, `read_file` |
+| Microsoft Teams | `src/teams.ts` | OAuth | Same Microsoft pair as Outlook | `list_teams`, `send_channel_message` |
+| Jira | `src/jira.ts` | OAuth | `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET` | `list_issues`, `create_issue` |
+| GitHub | `src/github.ts` | OAuth | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | `list_repos`, `create_issue` |
 | LinkedIn | `src/linkedin.ts` | OAuth | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | `get_profile` |
-| Google Calendar | `src/google-calendar.ts` | OAuth | Same Google pair as Gmail | `list_events` |
+| Google Calendar | `src/google-calendar.ts` | OAuth | Same Google pair as Gmail | `list_events`, `create_event` |
 | WhatsApp | `src/whatsapp.ts` | API key | Cloud API token and phone number id on the app page | `send_text` |
 | Telegram | `src/telegram.ts` | API key | Bot token on the app page | `get_me`, `get_updates`, `send_message` |
 | News | `src/news.ts` | None | Nothing | `latest` reads a public RSS feed |
@@ -24,16 +24,17 @@ OAuth apps stay disabled until both client env vars are set in `apps/api/.env`. 
 | Perplexity | `src/perplexity.ts` | API key | Perplexity API key on the app page | `ask` calls `https://api.perplexity.ai/chat/completions` |
 | Supabase | `src/supabase.ts` | API key | Project URL `https://<ref>.supabase.co` and an API key on the app page | `select_rows` calls PostgREST `GET /rest/v1/<table>` |
 | Custom MCP | `src/custom-mcp.ts` | API key | Server URL, optional bearer token, on the app page | `list_tools`, `call_tool` speak MCP over HTTP |
-| Google Sheets | `src/google-sheets.ts` | OAuth | Same Google pair as Gmail | `read_values` |
-| Twitter | `src/twitter.ts` | OAuth | `TWITTER_CLIENT_ID`, `TWITTER_CLIENT_SECRET` | `get_me` |
-| Profile | `src/profile.ts` | API key | Name, email, phone, note, subject, and body on the app page | `read`, `send_intro` sends one email through the connected Gmail account |
-| Jobs | `src/jobs.ts` | None | Nothing | `search` reads public Remotive and Arbeitnow listings |
+| Google Sheets | `src/google-sheets.ts` | OAuth | Same Google pair as Gmail | `read_values`, `update_values` |
+| Twitter | `src/twitter.ts` | OAuth | `TWITTER_CLIENT_ID`, `TWITTER_CLIENT_SECRET` | `get_me`, `post_tweet` |
+| Profile | `src/profile.ts` | API key | Name, headline, skills, experience, resume, contact, and intro text on the app page | `read`, `send_intro` sends one email through the connected Gmail account after you confirm |
+| Jobs | `src/jobs.ts` | None | Optional `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` for Indian listings | `search` reads Remotive, Arbeitnow, and Adzuna when configured. `save_application` stores a note |
+| Notion | `src/notion.ts` | API key | Integration token on the app page | `search`, `create_page` |
+| HubSpot | `src/hubspot.ts` | API key | Private app token on the app page | `list_contacts`, `create_contact` |
+| Linear | `src/linear.ts` | API key | Personal API key on the app page | `list_issues`, `create_issue` |
 | Notes | `src/notes.ts` | None | Nothing | `save`, `search` |
 | Manuscript | `src/manuscript.ts` | None | Nothing | `add_chapter`, `list_chapters`, `read_chapter`, `append` |
 | Canva | `src/canva.ts` | OAuth | `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET` | `create_design`, `import_manuscript`, `export_design` |
-| Review | `src/review.ts` | None | Nothing | `analyze` reads the saved profile, public GitHub, a personal site, and an optional LinkedIn note |
-
-Notion, HubSpot, and Linear are cards only. They have no file yet, so Connect stays disabled.
+| Review | `src/review.ts` | None | Nothing | `analyze` reads the saved resume, a connected GitHub account, a personal site, and LinkedIn name and email |
 
 ## Supabase
 
@@ -41,7 +42,7 @@ Use a project other than the one in `DATABASE_URL`. That database holds password
 
 ## Custom MCP
 
-The server must accept HTTP POST JSON-RPC (`initialize`, `notifications/initialized`, `tools/list`, `tools/call`), protocol `2025-03-26`. `http://127.0.0.1` is allowed. `169.254.169.254` and `metadata.google.internal` are not.
+The server must accept HTTP POST JSON-RPC (`initialize`, `notifications/initialized`, `tools/list`, `tools/call`), protocol `2025-03-26`. `http://127.0.0.1` is allowed. Metadata hosts, other private addresses, and redirects onto those hosts are not.
 
 ## Canva
 

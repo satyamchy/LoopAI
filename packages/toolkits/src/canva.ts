@@ -30,6 +30,7 @@ export const canva: Toolkit = {
       slug: "create_design",
       description: "Create an empty Canva doc or presentation and return its edit URL.",
       risk: "write",
+      confirm: true,
       input: z.object({
         title: z.string().min(1).max(120),
         preset: z.enum(["doc", "presentation"]).optional(),
@@ -54,6 +55,7 @@ export const canva: Toolkit = {
       slug: "import_manuscript",
       description: "Import the saved book chapters into Canva as a PDF design. Returns the edit URL.",
       risk: "write",
+      confirm: true,
       input: z.object({ title: z.string().min(1).max(120).optional() }),
       async run(args, token, credentials) {
         const encoded = credentials?.manuscriptPdfBase64;
@@ -83,6 +85,7 @@ export const canva: Toolkit = {
       slug: "export_design",
       description: "Export a Canva design as PDF. The download URL expires after 24 hours.",
       risk: "read",
+      confirm: true,
       input: z.object({ designId: z.string().min(4).max(80) }),
       async run(args, token) {
         const started = await bearerJson(`${CANVA}/exports`, token!, {

@@ -8,9 +8,9 @@ import { microsoftOAuth } from "./oauth";
 export const outlook: Toolkit = {
   slug: "outlook",
   displayName: "Outlook",
-  description: "List recent Outlook messages.",
+  description: "Read recent Outlook mail and send a plain-text message.",
   authType: "oauth2",
-  oauth: microsoftOAuth(["Mail.Read", "User.Read"]),
+  oauth: microsoftOAuth(["Mail.Read", "Mail.Send", "User.Read"]),
   actions: [
     defineAction({
       slug: "list_messages",
@@ -29,6 +29,33 @@ export const outlook: Toolkit = {
             return { id: row.id, subject: row.subject ?? null, from: row.from?.emailAddress?.address ?? null, received: row.receivedDateTime ?? null };
           }),
         };
+      },
+    }),
+    defineAction({
+      slug: "send_mail",
+      description: "Send a plain-text email from the connected Outlook account.",
+      risk: "write",
+      confirm: true,
+      input: z.object({
+        to: z.string().email(),
+        subject: z.string().min(1).max(200),
+        body: z.string().min(1).max(10_000),
+      }),
+      async run(args, token) {
+        const response = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({
+            message: {
+              subject: args.subject,
+              body: { contentType: "Text", content: args.body },
+              toRecipients: [{ emailAddress: { address: args.to } }],
+            },
+          }),
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (!response.ok) throw new Error(`Upstream graph.microsoft.com returned ${response.status}`);
+        return { to: args.to };
       },
     }),
   ],

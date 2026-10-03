@@ -142,15 +142,24 @@ export function AppDetail() {
             {toolkit.credentialFields.map((field) => (
               <label key={field.key} className="grid gap-1 text-sm">
                 {field.label}
-                <input
-                  className="rounded-none border border-stone-300 px-2.5 py-2"
-                  type={field.secret === false ? "text" : "password"}
-                  value={fields[field.key] ?? ""}
-                  minLength={field.secret === false ? undefined : 8}
-                  required={!field.optional}
-                  autoComplete="off"
-                  onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
-                />
+                {field.long ? (
+                  <textarea
+                    className="min-h-28 rounded-none border border-stone-300 px-2.5 py-2"
+                    value={fields[field.key] ?? ""}
+                    required={!field.optional}
+                    onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
+                  />
+                ) : (
+                  <input
+                    className="rounded-none border border-stone-300 px-2.5 py-2"
+                    type={field.secret === false ? "text" : "password"}
+                    value={fields[field.key] ?? ""}
+                    minLength={field.secret === false ? undefined : 8}
+                    required={!field.optional}
+                    autoComplete="off"
+                    onChange={(event) => setFields({ ...fields, [field.key]: event.target.value })}
+                  />
+                )}
               </label>
             ))}
             <label className="flex items-center gap-2 text-sm">

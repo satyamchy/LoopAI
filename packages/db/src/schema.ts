@@ -2,8 +2,7 @@ import { integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } fro
 
 /**
  * Tables the API queries. Every secret row is scoped by workspace_id.
- * Login uses users, sessions, and workspace_members. One login still joins
- * the single workspace this process opens. It does not split vaults yet.
+ * Each signup owns a workspace. A member row is an invite into someone else's.
  */
 
 export const workspaces = pgTable("workspaces", {
@@ -27,13 +26,14 @@ export const connectedAccounts = pgTable("connected_accounts", {
   externalLabel: text("external_label"),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   encryptedCredentials: text("encrypted_credentials").notNull(),
+  createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const oauthStates = pgTable("oauth_states", {
   state: text("state").primaryKey(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  workspaceId: text("workspace_id").references(() => workspaces.id),
   toolkitSlug: text("toolkit_slug").notNull(),
   codeVerifierEncrypted: text("code_verifier_encrypted").notNull(),
   scope: text("scope").notNull(),
@@ -56,6 +56,11 @@ export const agentKeys = pgTable("agent_keys", {
   name: text("name").notNull(),
   keyHash: text("key_hash").notNull().unique(),
   keyPrefix: text("key_prefix").notNull(),
+  scopes: text("scopes").notNull().default("read"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  clientName: text("client_name"),
+  clientVersion: text("client_version"),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });
@@ -82,13 +87,43 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash"),
   displayName: text("display_name"),
   googleSub: text("google_sub").unique(),
+  emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const sessions = pgTable("sessions", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id),
+  workspaceId: text("workspace_id").references(() => workspaces.id),
   tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const passwordResets = pgTable("password_resets", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+export const emailVerifications = pgTable("email_verifications", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+export const toolApprovals = pgTable("tool_approvals", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
+  conversationId: text("conversation_id"),
+  toolkitSlug: text("toolkit_slug").notNull(),
+  action: text("action").notNull(),
+  connectedAccountId: text("connected_account_id"),
+  argsEncrypted: text("args_encrypted").notNull(),
+  summary: text("summary").notNull(),
+  status: text("status").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

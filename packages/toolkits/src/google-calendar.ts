@@ -8,10 +8,10 @@ import { googleOAuth } from "./oauth";
 export const googleCalendar: Toolkit = {
   slug: "google-calendar",
   displayName: "Google Calendar",
-  description: "Read upcoming events on the primary calendar.",
+  description: "Read and create events on the primary calendar.",
   authType: "oauth2",
   oauth: googleOAuth([
-    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/userinfo.email",
   ]),
   actions: [
@@ -38,6 +38,24 @@ export const googleCalendar: Toolkit = {
             };
           }),
         };
+      },
+    }),
+    defineAction({
+      slug: "create_event",
+      description: "Create an event on the primary calendar. Start and end are ISO timestamps.",
+      risk: "write",
+      confirm: true,
+      input: z.object({
+        summary: z.string().min(1).max(200),
+        start: z.string().min(8).max(40),
+        end: z.string().min(8).max(40),
+      }),
+      async run(args, token) {
+        const data = await bearerJson("https://www.googleapis.com/calendar/v3/calendars/primary/events", token!, {
+          method: "POST",
+          body: JSON.stringify({ summary: args.summary, start: { dateTime: args.start }, end: { dateTime: args.end } }),
+        });
+        return { id: typeof data.id === "string" ? data.id : null, summary: args.summary };
       },
     }),
   ],

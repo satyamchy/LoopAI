@@ -7,12 +7,12 @@ import { bearerJson } from "./http";
 export const twitter: Toolkit = {
   slug: "twitter",
   displayName: "Twitter",
-  description: "Read the connected X account.",
+  description: "Read the connected X account and post a tweet.",
   authType: "oauth2",
   oauth: {
     authorizationUrl: "https://twitter.com/i/oauth2/authorize",
     tokenUrl: "https://api.twitter.com/2/oauth2/token",
-    scopes: ["tweet.read", "users.read", "offline.access"],
+    scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
     clientIdEnv: "TWITTER_CLIENT_ID",
     clientSecretEnv: "TWITTER_CLIENT_SECRET",
     tokenAuth: "basic",
@@ -31,6 +31,21 @@ export const twitter: Toolkit = {
           name: typeof user?.name === "string" ? user.name : null,
           username: typeof user?.username === "string" ? user.username : null,
         };
+      },
+    }),
+    defineAction({
+      slug: "post_tweet",
+      description: "Post one tweet. A vendor refusal comes back as a status, not the response body.",
+      risk: "write",
+      confirm: true,
+      input: z.object({ text: z.string().min(1).max(280) }),
+      async run(args, token) {
+        const data = await bearerJson("https://api.twitter.com/2/tweets", token!, {
+          method: "POST",
+          body: JSON.stringify({ text: args.text }),
+        });
+        const tweet = data.data as { id?: unknown } | undefined;
+        return { id: typeof tweet?.id === "string" ? tweet.id : null };
       },
     }),
   ],

@@ -2,10 +2,10 @@
   "name": "loopai",
   "private": true,
   "scripts": {
-    "dev": "pnpm --parallel --filter @loopai/api --filter @loopai/web dev",
+    "dev": "corepack pnpm --parallel --filter @loopai/api --filter @loopai/web dev",
     "test": "vitest run",
     "test:live": "vitest run --config vitest.live.config.ts",
-    "db:migrate": "pnpm --filter @loopai/db migrate"
+    "db:migrate": "corepack pnpm --filter @loopai/db migrate"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

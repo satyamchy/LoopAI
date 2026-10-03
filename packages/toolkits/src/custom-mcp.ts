@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Toolkit } from "@loopai/core";
 import { defineAction } from "./define";
+import { assertPublicUrl, fetchChecked } from "./safe-url";
 
 /**
  * Call an MCP server LoopAI does not ship. Connect with its HTTP URL.
@@ -45,6 +46,7 @@ export const customMcp: Toolkit = {
       slug: "call_tool",
       description: "Call one tool by the name list_tools returned.",
       risk: "write",
+      confirm: true,
       input: z.object({
         name: z.string().min(1).max(120),
         arguments: z.record(z.unknown()).optional(),
@@ -57,28 +59,19 @@ export const customMcp: Toolkit = {
   ],
 };
 
-export function assertMcpUrl(raw: string): URL {
-  let url: URL;
+export async function assertMcpUrl(raw: string): Promise<URL> {
   try {
-    url = new URL(raw);
+    return await assertPublicUrl(raw, { allowLocalhost: true });
   } catch {
-    throw new Error("MCP server URL is not valid.");
-  }
-  const host = url.hostname.toLowerCase();
-  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
-    throw new Error("MCP server URL must be http or https.");
-  }
-  if (host === "169.254.169.254" || host === "metadata.google.internal" || host === "fd00:ec2::254") {
     throw new Error("That MCP host is not allowed.");
   }
-  return url;
 }
 
 type Session = { id: string | null };
 type Rpc = (method: string, params: unknown, id: number) => Promise<unknown>;
 
 async function withSession(credentials: Record<string, unknown> | undefined, run: (call: Rpc) => Promise<unknown>): Promise<unknown> {
-  const serverUrl = assertMcpUrl(typeof credentials?.serverUrl === "string" ? credentials.serverUrl : "").toString();
+  const serverUrl = (await assertMcpUrl(typeof credentials?.serverUrl === "string" ? credentials.serverUrl : "")).toString();
   const bearer = bearerOf(credentials);
   const session: Session = { id: null };
   const opened = await post(serverUrl, bearer, session, { jsonrpc: "2.0", id: 1, method: "initialize", params: INIT });
@@ -109,8 +102,9 @@ async function post(serverUrl: string, bearer: string | null, session: Session, 
   if (session.id) headers.set("mcp-session-id", session.id);
   let response: Response;
   try {
-    response = await fetch(serverUrl, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
-  } catch {
+    response = await fetchChecked(serverUrl, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) }, { allowLocalhost: true });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("not allowed")) throw error;
     throw new Error("MCP server could not be reached.");
   }
   const next = response.headers.get("mcp-session-id");

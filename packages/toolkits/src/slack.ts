@@ -7,12 +7,12 @@ import { bearerJson } from "./http";
 export const slack: Toolkit = {
   slug: "slack",
   displayName: "Slack",
-  description: "List channels the bot can see.",
+  description: "List channels and post a message.",
   authType: "oauth2",
   oauth: {
     authorizationUrl: "https://slack.com/oauth/v2/authorize",
     tokenUrl: "https://slack.com/api/oauth.v2.access",
-    scopes: ["channels:read"],
+    scopes: ["channels:read", "chat:write"],
     clientIdEnv: "SLACK_CLIENT_ID",
     clientSecretEnv: "SLACK_CLIENT_SECRET",
     labelFromToken: (json) => {
@@ -31,6 +31,21 @@ export const slack: Toolkit = {
         if (data.ok === false) throw new Error(`Slack ${String(data.error ?? "request failed")}`);
         const channels = Array.isArray(data.channels) ? data.channels : [];
         return { channels: channels.map((channel) => ({ id: (channel as { id?: string }).id, name: (channel as { name?: string }).name })) };
+      },
+    }),
+    defineAction({
+      slug: "post_message",
+      description: "Post a plain-text message to a channel id from list_channels.",
+      risk: "write",
+      confirm: true,
+      input: z.object({ channel: z.string().min(1).max(80), text: z.string().min(1).max(4000) }),
+      async run(args, token) {
+        const data = await bearerJson("https://slack.com/api/chat.postMessage", token!, {
+          method: "POST",
+          body: JSON.stringify({ channel: args.channel, text: args.text }),
+        });
+        if (data.ok === false) throw new Error("Slack rejected the message.");
+        return { channel: args.channel, ts: typeof data.ts === "string" ? data.ts : null };
       },
     }),
   ],

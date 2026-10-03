@@ -2,11 +2,7 @@ import type { Toolkit, ToolkitCard } from "@loopai/core";
 import { clientConfigured } from "./oauth";
 
 /** Cards with no module yet. Connect stays disabled until a toolkit file exists. */
-const planned: ToolkitCard[] = [
-  card("notion", "Notion", "Pages and databases."),
-  card("hubspot", "HubSpot", "Contacts and deals."),
-  card("linear", "Linear", "Issues and projects."),
-];
+const planned: ToolkitCard[] = [];
 
 /** Grid data for the dashboard. Implemented toolkits come first. */
 export function listCards(toolkits: Toolkit[]): ToolkitCard[] {
@@ -24,18 +20,4 @@ export function listCards(toolkits: Toolkit[]): ToolkitCard[] {
     })),
     ...planned,
   ];
-}
-
-function card(slug: string, displayName: string, description: string): ToolkitCard {
-  return {
-    slug,
-    displayName,
-    description,
-    authType: "oauth2",
-    implemented: false,
-    configured: false,
-    setupEnv: null,
-    credentialFields: [],
-    actions: [],
-  };
 }

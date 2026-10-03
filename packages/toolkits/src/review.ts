@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Toolkit } from "@loopai/core";
 import { defineAction } from "./define";
+import { assertPublicUrl, fetchChecked } from "./safe-url";
 
 /**
  * Facts for a profile review. The model writes the roadmap.
@@ -9,30 +10,39 @@ import { defineAction } from "./define";
 export const review: Toolkit = {
   slug: "review",
   displayName: "Review",
-  description: "Gather a saved profile, public GitHub, a personal site, and an optional LinkedIn note.",
+  description: "Gather a saved resume, a connected GitHub account, a personal site, and LinkedIn name and email.",
   authType: "none",
   actions: [
     defineAction({
       slug: "analyze",
-      description: "Collect facts for a goal. Returns profile, GitHub, website, and LinkedIn fields that were actually found. Does not write the roadmap.",
+      description: "Collect facts for a goal. Returns the saved resume, GitHub, website, and LinkedIn fields that were actually found. Does not write the roadmap. Pass profileAccount, githubAccount, or linkedinAccount when more than one of that app is connected.",
       risk: "read",
       input: z.object({
         goal: z.string().min(2).max(300),
         github: z.string().regex(/^[A-Za-z0-9-]{1,39}$/).optional(),
         website: z.string().max(300).optional(),
         linkedinSummary: z.string().max(8_000).optional(),
+        profileAccount: z.string().max(80).optional(),
+        githubAccount: z.string().max(80).optional(),
+        linkedinAccount: z.string().max(80).optional(),
       }),
       async run(args, _token, credentials) {
+        const token = typeof credentials?.githubAccessToken === "string" ? credentials.githubAccessToken : "";
         const [github, website] = await Promise.all([
-          args.github ? githubFacts(args.github) : Promise.resolve({ missing: "No GitHub login was given." }),
+          token ? githubFromToken(token) : args.github ? githubFacts(args.github) : Promise.resolve({ missing: "No GitHub account was connected." }),
           args.website ? websiteFacts(args.website) : Promise.resolve({ missing: "No website was given." }),
         ]);
         const name = text(credentials, "profileName");
         const about = text(credentials, "profileAbout");
         const email = text(credentials, "profileEmail");
+        const headline = text(credentials, "profileHeadline");
+        const skills = text(credentials, "profileSkills");
+        const experience = text(credentials, "profileExperience");
+        const resume = text(credentials, "profileResume").slice(0, 20_000);
+        const saved = name || about || email || headline || skills || experience || resume;
         return {
           goal: args.goal,
-          profile: name || about || email ? { name, about, email } : { missing: "No profile was saved." },
+          profile: saved ? { name, about, email, headline, skills, experience, resume } : { missing: "No profile was saved." },
           github,
           website,
           linkedin: await linkedinFacts(args.linkedinSummary, credentials?.linkedinAccessToken),
@@ -47,12 +57,27 @@ function text(credentials: Record<string, unknown> | undefined, key: string): st
   return typeof value === "string" ? value : "";
 }
 
+async function githubFromToken(token: string): Promise<unknown> {
+  const [user, repos] = await Promise.all([
+    pull("https://api.github.com/user", false, token),
+    pull("https://api.github.com/user/repos?sort=updated&per_page=8", false, token),
+  ]);
+  if (!user || typeof user !== "object") return { error: "GitHub did not respond." };
+  const row = user as { login?: unknown };
+  const login = typeof row.login === "string" ? row.login : "";
+  return shapeGithub(login, user, repos);
+}
+
 async function githubFacts(login: string): Promise<unknown> {
   const [user, repos] = await Promise.all([
     pull(`https://api.github.com/users/${login}`),
     pull(`https://api.github.com/users/${login}/repos?sort=updated&per_page=8`),
   ]);
   if (!user) return { error: "GitHub did not respond." };
+  return shapeGithub(login, user, repos);
+}
+
+function shapeGithub(login: string, user: unknown, repos: unknown) {
   const row = user as { login?: unknown; name?: unknown; bio?: unknown; public_repos?: unknown };
   const list = Array.isArray(repos) ? repos : [];
   return {
@@ -73,7 +98,7 @@ async function githubFacts(login: string): Promise<unknown> {
 }
 
 async function websiteFacts(raw: string): Promise<unknown> {
-  const url = assertSite(raw);
+  const url = await assertPublicUrlForSite(raw);
   const response = await pull(url.toString(), true);
   if (typeof response !== "string" || !response) return { error: "The website did not respond.", url: url.toString() };
   const title = /<title>([^<]{0,120})/i.exec(response)?.[1]?.trim() ?? "";
@@ -98,31 +123,24 @@ async function linkedinFacts(summary: string | undefined, token: unknown): Promi
   return { ...(member ? { name: member.name, email: member.email } : {}), ...(note ? { summary: note } : {}) };
 }
 
-function assertSite(raw: string): URL {
-  let url: URL;
+async function assertPublicUrlForSite(raw: string): Promise<URL> {
   try {
-    url = new URL(raw);
-  } catch {
-    throw new Error("Website URL is not valid.");
-  }
-  const host = url.hostname.toLowerCase();
-  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
-    throw new Error("Website URL must be http or https.");
-  }
-  if (host === "169.254.169.254" || host === "metadata.google.internal" || host === "fd00:ec2::254") {
+    return await assertPublicUrl(raw, { allowLocalhost: false });
+  } catch (error) {
+    if (error instanceof Error && error.message === "That URL is not valid.") throw new Error("Website URL is not valid.");
     throw new Error("That site is not allowed.");
   }
-  return url;
 }
 
 async function pull(url: string, text = false, token?: string): Promise<unknown> {
   try {
     const headers: Record<string, string> = { accept: text ? "text/html" : "application/json", "user-agent": "loopai" };
     if (token) headers.authorization = `Bearer ${token}`;
-    const response = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
+    const response = await fetchChecked(url, { headers, signal: AbortSignal.timeout(15_000) }, { allowLocalhost: false });
     if (!response.ok) return null;
     return text ? await response.text() : await response.json();
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && /not allowed|not valid/.test(error.message)) throw error;
     return null;
   }
 }

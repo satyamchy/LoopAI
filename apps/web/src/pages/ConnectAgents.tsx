@@ -1,75 +1,77 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
-import { useBase } from "../paths";
 
-type KeyRow = { id: string; name: string; keyPrefix: string; createdAt: string };
-
-const clients = [
-  { name: "Cursor", detail: "Add an MCP server in Cursor settings with this URL and bearer key." },
-  { name: "Claude", detail: "Use the same URL and bearer key in Claude desktop." },
-  { name: "ChatGPT", detail: "Add this URL and bearer key in the ChatGPT app on this computer. The ChatGPT website cannot reach localhost." },
-];
+type KeyRow = {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  scopes: string;
+  clientName: string | null;
+  clientVersion: string | null;
+  lastSeenAt: string | null;
+};
 
 export function ConnectAgents() {
-  const navigate = useNavigate();
-  const base = useBase();
-  const { client: clientParam } = useParams();
-  const client = clients.find((item) => item.name.toLowerCase() === clientParam)?.name ?? "ChatGPT";
-  const [name, setName] = useState(client);
+  const [name, setName] = useState("");
+  const [write, setWrite] = useState(false);
+  const [expiresInDays, setExpiresInDays] = useState("0");
   const [mcpUrl, setMcpUrl] = useState("http://localhost:8787/mcp");
   const [keys, setKeys] = useState<KeyRow[]>([]);
   const [freshKey, setFreshKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setName(client);
-  }, [client]);
+  function load() {
+    return api<{ keys: KeyRow[]; mcpUrl: string }>("/v1/agent-keys").then((body) => {
+      setKeys(body.keys);
+      setMcpUrl(body.mcpUrl);
+    });
+  }
 
   useEffect(() => {
-    api<{ keys: KeyRow[]; mcpUrl: string }>("/v1/agent-keys")
-      .then((body) => {
-        setKeys(body.keys);
-        setMcpUrl(body.mcpUrl);
-      })
-      .catch((reason: Error) => setError(reason.message));
+    load().catch((reason: Error) => setError(reason.message));
   }, []);
 
   async function createKey() {
     const created = await api<{ key: string; mcpUrl: string }>("/v1/agent-keys", {
       method: "POST",
-      body: JSON.stringify({ name: name.trim() || client }),
+      body: JSON.stringify({ name: name.trim() || "Agent", write, expiresInDays: Number(expiresInDays) || undefined }),
     });
     setFreshKey(created.key);
     setMcpUrl(created.mcpUrl);
     setCopied(false);
-    const listed = await api<{ keys: KeyRow[] }>("/v1/agent-keys");
-    setKeys(listed.keys);
+    setName("");
+    await load();
   }
 
   const snippet = JSON.stringify({ mcpServers: { loopai: { url: mcpUrl, headers: { Authorization: `Bearer ${freshKey ?? "YOUR_KEY"}` } } } }, null, 2);
-  const cli = `claude mcp add --transport http loopai ${mcpUrl} --header "Authorization: Bearer ${freshKey ?? "YOUR_KEY"}"`;
+  const connected = keys.filter((key) => key.lastSeenAt);
+  const waiting = keys.filter((key) => !key.lastSeenAt);
 
   return (
     <section className="mx-auto grid max-w-3xl gap-5">
       <header className="text-center">
         <h1 className="text-4xl font-semibold tracking-tight">Connect an agent</h1>
-        <p className="mt-2 text-stone-500">Create a key, copy the MCP block once, and paste it into the client.</p>
+        <p className="mt-2 text-stone-500">Tools stay on this MCP server. Any MCP client can use them. The list below is filled when that client connects.</p>
       </header>
       {error && <p className="border border-red-200 bg-red-50 px-3 py-2">{error}</p>}
-      <div className="grid gap-3 sm:grid-cols-3">
-        {clients.map((item) => (
-          <button key={item.name} type="button" className={client === item.name ? "rounded-lg border border-orange-500 bg-orange-50 p-4 text-left" : "rounded-lg border border-stone-200 bg-white p-4 text-left"} onClick={() => navigate(`${base}/connect/clients/${item.name.toLowerCase()}`)}>
-            <h2 className="text-base font-semibold">{item.name}</h2>
-            <p className="mt-1 text-sm text-stone-500">{item.detail}</p>
-          </button>
-        ))}
-      </div>
       <form className="grid gap-3 rounded-lg border border-stone-200 bg-white p-4" onSubmit={(event) => { event.preventDefault(); createKey().catch((reason: Error) => setError(reason.message)); }}>
         <label className="grid gap-1 text-sm">
-          Key name
-          <input className="rounded-none border border-stone-300 px-2.5 py-2" value={name} onChange={(event) => setName(event.target.value)} required minLength={2} />
+          Name for this key
+          <input className="rounded-none border border-stone-300 px-2.5 py-2" value={name} onChange={(event) => setName(event.target.value)} placeholder="Cursor, Claude, or any other client" minLength={2} />
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={write} onChange={(event) => setWrite(event.target.checked)} />
+          Allow send and other writes. This is the approval for this agent.
+        </label>
+        <label className="grid gap-1 text-sm">
+          Expires
+          <select className="rounded-none border border-stone-300 px-2.5 py-2" value={expiresInDays} onChange={(event) => setExpiresInDays(event.target.value)}>
+            <option value="0">Until revoke</option>
+            <option value="7">7 days</option>
+            <option value="30">30 days</option>
+            <option value="90">90 days</option>
+          </select>
         </label>
         <button className="w-fit rounded-md bg-orange-500 px-3 py-2 text-sm font-semibold text-white" type="submit">Create key</button>
       </form>
@@ -79,16 +81,33 @@ export function ConnectAgents() {
           <h2 className="text-base font-semibold">MCP config</h2>
           <button className="rounded-md border border-stone-300 px-3 py-2 text-sm" type="button" onClick={() => navigator.clipboard.writeText(snippet).then(() => setCopied(true)).catch(() => setError("Could not copy."))}>{copied ? "Copied" : "Copy"}</button>
         </div>
+        <p className="text-sm text-stone-500">Paste this into the client. A new agent is another key, not a code change. The server URL is {mcpUrl}.</p>
         <pre className="overflow-auto bg-stone-900 p-3 text-sm text-stone-100">{snippet}</pre>
-        <h3 className="text-sm font-semibold">CLI</h3>
-        <p className="text-sm text-stone-500">This works only while the API is running on this computer.</p>
-        <pre className="overflow-auto bg-stone-900 p-3 text-sm text-stone-100">{cli}</pre>
       </article>
-      {keys.length > 0 && (
-        <ul className="grid gap-1 text-sm text-stone-600">
-          {keys.map((key) => <li key={key.id}>{key.name} · {key.keyPrefix}…</li>)}
+      <article className="grid gap-2 rounded-lg border border-stone-200 bg-white p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold">Connected agents</h2>
+          <button className="rounded-md border border-stone-300 px-3 py-2 text-sm" type="button" onClick={() => load().catch((reason: Error) => setError(reason.message))}>Refresh</button>
+        </div>
+        {connected.length === 0 && <p className="text-sm text-stone-500">None yet. The name appears here after the client sends its MCP handshake.</p>}
+        <ul className="grid gap-2">
+          {connected.map((key) => (
+            <li key={key.id} className="rounded-md border border-stone-200 px-3 py-2 text-sm">
+              <strong>{key.clientName}</strong>
+              {key.clientVersion ? <span className="text-stone-500"> {key.clientVersion}</span> : null}
+              <span className="block text-stone-500">Key {key.name} · {key.keyPrefix}… · {key.scopes} · last seen {new Date(key.lastSeenAt ?? "").toLocaleString()}</span>
+            </li>
+          ))}
         </ul>
-      )}
+        {waiting.length > 0 && (
+          <>
+            <h3 className="mt-2 text-sm font-semibold">Waiting to connect</h3>
+            <ul className="grid gap-1 text-sm text-stone-600">
+              {waiting.map((key) => <li key={key.id}>{key.name} · {key.keyPrefix}… · {key.scopes}</li>)}
+            </ul>
+          </>
+        )}
+      </article>
     </section>
   );
 }

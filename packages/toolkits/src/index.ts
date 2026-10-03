@@ -25,6 +25,9 @@ import { notes } from "./notes";
 import { manuscript } from "./manuscript";
 import { canva } from "./canva";
 import { review } from "./review";
+import { notion } from "./notion";
+import { hubspot } from "./hubspot";
+import { linear } from "./linear";
 
 /**
  * Registry. To add a tool: create a file, export a Toolkit, and append it here.
@@ -57,6 +60,9 @@ export const toolkits: Toolkit[] = [
   manuscript,
   canva,
   review,
+  notion,
+  hubspot,
+  linear,
 ];
 
 export function findToolkit(slug: string): Toolkit | null {

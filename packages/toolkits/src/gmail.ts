@@ -50,6 +50,7 @@ export const gmail: Toolkit = {
       slug: "send_email",
       description: "Send a plain-text email. Does not return the Gmail token.",
       risk: "write",
+      confirm: true,
       input: z.object({
         to: z.string().email(),
         subject: z.string().min(1).max(200),

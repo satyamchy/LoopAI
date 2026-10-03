@@ -4,7 +4,8 @@ import remarkGfm from "remark-gfm";
 import { useSearchParams } from "react-router-dom";
 import { api, downloadFile, type DownloadRef, type LlmConnection, type ProviderOption } from "../api";
 
-type Bubble = { role: "user" | "assistant"; content: string; tools?: string[]; downloads?: DownloadRef[]; failed?: boolean };
+type Pending = { id: string; summary: string };
+type Bubble = { role: "user" | "assistant"; content: string; tools?: string[]; downloads?: DownloadRef[]; failed?: boolean; pending?: Pending | null };
 
 const tasks = [
   "Compare AI model prices across providers",
@@ -100,20 +101,65 @@ export function Chat() {
     setDraft("");
     setError(null);
     setSending(true);
-    setBubbles((current) => [...current, { role: "user", content: message }]);
+    setBubbles((current) => [...current, { role: "user", content: message }, { role: "assistant", content: "" }]);
     try {
-      const result = await api<{ conversationId: string; reply: string; tools: string[]; downloads: DownloadRef[] }>("/v1/chat", {
-        method: "POST",
-        body: JSON.stringify({ llmConnectionId: modelId, message, conversationId }),
+      const result = await readChat("/v1/chat", { llmConnectionId: modelId, message, conversationId, stream: true }, (delta) => {
+        setBubbles((current) => {
+          const next = [...current];
+          const last = next[next.length - 1];
+          if (last?.role === "assistant") next[next.length - 1] = { ...last, content: last.content + delta };
+          return next;
+        });
       });
-      setConversationId(result.conversationId);
-      skipLoad.current = result.conversationId;
-      setParams({ c: result.conversationId }, { replace: true });
-      setBubbles((current) => [...current, { role: "assistant", content: result.reply, tools: result.tools, downloads: result.downloads }]);
+      if (result.error) throw new Error(String(result.error));
+      setConversationId(String(result.conversationId));
+      skipLoad.current = String(result.conversationId);
+      setParams({ c: String(result.conversationId) }, { replace: true });
+      setBubbles((current) => {
+        const next = [...current];
+        next[next.length - 1] = {
+          role: "assistant",
+          content: String(result.reply ?? ""),
+          tools: result.tools as string[] | undefined,
+          downloads: result.downloads as DownloadRef[] | undefined,
+          pending: (result.pending as Pending | undefined) ?? null,
+        };
+        return next;
+      });
     } catch (reason) {
       const text = reason instanceof Error ? reason.message : "Chat failed";
-      setBubbles((current) => [...current, { role: "assistant", content: text, failed: true }]);
+      setBubbles((current) => {
+        const next = [...current];
+        next[next.length - 1] = { role: "assistant", content: text, failed: true };
+        return next;
+      });
       setError(text);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function confirm(approvalId: string, accept: boolean) {
+    if (!modelId || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      const result = await readChat("/v1/chat/confirm", { approvalId, accept, llmConnectionId: modelId, stream: true }, (delta) => {
+        setBubbles((current) => {
+          const next = [...current];
+          const last = next[next.length - 1];
+          if (last?.role === "assistant") next[next.length - 1] = { ...last, content: last.content + delta, pending: null };
+          return next;
+        });
+      });
+      if (result.error) throw new Error(String(result.error));
+      setBubbles((current) => {
+        const next = [...current];
+        next[next.length - 1] = { role: "assistant", content: String(result.reply ?? result.status ?? ""), tools: result.tools as string[] | undefined, pending: null };
+        return next;
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not confirm.");
     } finally {
       setSending(false);
     }
@@ -158,6 +204,12 @@ export function Chat() {
               <div className="reply"><ReactMarkdown remarkPlugins={[remarkGfm]}>{bubble.content}</ReactMarkdown></div>
             ) : (
               <p className="whitespace-pre-wrap">{bubble.content}</p>
+            )}
+            {bubble.pending && (
+              <div className="mt-2 flex gap-2">
+                <button className="rounded-md bg-orange-500 px-2 py-1 text-xs font-semibold text-white" type="button" onClick={() => confirm(bubble.pending!.id, true).catch((reason: Error) => setError(reason.message))}>Confirm</button>
+                <button className="rounded-md border border-stone-500 px-2 py-1 text-xs" type="button" onClick={() => confirm(bubble.pending!.id, false).catch((reason: Error) => setError(reason.message))}>Cancel</button>
+              </div>
             )}
             {bubble.tools && bubble.tools.length > 0 && <small className="text-stone-400">Used {bubble.tools.join(", ")}</small>}
             {bubble.role === "assistant" && !bubble.failed && (
@@ -233,4 +285,35 @@ export function Chat() {
       )}
     </section>
   );
+}
+
+async function readChat(path: string, body: unknown, onDelta: (text: string) => void): Promise<Record<string, unknown>> {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok || !response.body) {
+    const failed = await response.json().catch(() => ({ error: "Chat failed" }));
+    throw new Error(failed.error ?? "Chat failed");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let doneBody: Record<string, unknown> = {};
+  for (;;) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    buffer += decoder.decode(chunk.value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      const event = /^event: (.+)$/m.exec(part)?.[1];
+      const data = /^data: (.*)$/m.exec(part)?.[1] ?? "";
+      if (event === "delta") onDelta(JSON.parse(data) as string);
+      if (event === "done") doneBody = JSON.parse(data) as Record<string, unknown>;
+    }
+  }
+  return doneBody;
 }

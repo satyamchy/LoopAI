@@ -103,14 +103,14 @@ describe("tool execute contract", () => {
     const response = await app.request("/v1/tools/execute", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ toolkit: "notion", action: "search", arguments: {} }),
+      body: JSON.stringify({ toolkit: "not-a-toolkit", action: "search", arguments: {} }),
     });
     expect(response.status).toBe(404);
   });
 });
 
 describe("chat loop limits", () => {
-  test("the tool loop stops after four model rounds", async () => {
+  test("the tool loop stops after six model rounds", async () => {
     let calls = 0;
     const fetchImpl: typeof fetch = async () => {
       calls += 1;
@@ -136,9 +136,9 @@ describe("chat loop limits", () => {
       fetchImpl,
       secrets: ["llm-key-value"],
     });
-    expect(calls).toBe(4);
+    expect(calls).toBe(6);
     expect(result.text).toBe("I could not finish that with the connected tools.");
-    expect(result.toolsUsed).toHaveLength(4);
+    expect(result.toolsUsed).toHaveLength(6);
   });
 
   test("a custom base url is used as given, with one trailing slash removed", () => {

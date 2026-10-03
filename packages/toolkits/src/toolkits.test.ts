@@ -260,6 +260,9 @@ describe("new connectors", () => {
     expect(JSON.stringify(result)).toContain("I build tools.");
     expect(JSON.stringify(result)).not.toContain(token);
     await expect(executeToolkit(review, "analyze", { goal: "backend role", website: "http://169.254.169.254/latest" }, {})).rejects.toThrow("That site is not allowed.");
+    await expect(executeToolkit(review, "analyze", { goal: "backend role", website: "http://127.0.0.1/secret" }, {})).rejects.toThrow("That site is not allowed.");
+    vi.stubGlobal("fetch", vi.fn(async () => Response.redirect("http://169.254.169.254/latest", 302)));
+    await expect(executeToolkit(review, "analyze", { goal: "backend role", website: "https://example.com/go" }, {})).rejects.toThrow("That site is not allowed.");
     vi.unstubAllGlobals();
   });
 });

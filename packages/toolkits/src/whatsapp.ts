@@ -21,6 +21,7 @@ export const whatsapp: Toolkit = {
       slug: "send_text",
       description: "Send a text message to a phone number in international format.",
       risk: "write",
+      confirm: true,
       input: z.object({ to: z.string().min(8).max(20), body: z.string().min(1).max(4000) }),
       async run(args, token, credentials) {
         const phoneNumberId = credentials?.phoneNumberId;

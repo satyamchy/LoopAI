@@ -16,6 +16,10 @@ export const profile: Toolkit = {
     { key: "fullName", label: "Name", secret: false },
     { key: "email", label: "Email", secret: false },
     { key: "phone", label: "Phone", secret: false, optional: true },
+    { key: "headline", label: "Headline", secret: false, optional: true },
+    { key: "skills", label: "Skills", secret: false, optional: true },
+    { key: "experience", label: "Experience", secret: false, optional: true, long: true },
+    { key: "resumeText", label: "Resume", secret: false, optional: true, long: true },
     { key: "about", label: "Short note", secret: false },
     { key: "subject", label: "Subject", secret: false },
     { key: "body", label: "Email body", secret: false },
@@ -23,7 +27,7 @@ export const profile: Toolkit = {
   actions: [
     defineAction({
       slug: "read",
-      description: "Read the saved name, email, phone, note, subject, and body.",
+      description: "Read the saved name, headline, skills, experience, resume, email, phone, note, subject, and body.",
       risk: "read",
       input: z.object({}),
       async run(_args, _token, credentials) {
@@ -31,6 +35,10 @@ export const profile: Toolkit = {
           name: text(credentials, "fullName"),
           email: text(credentials, "email"),
           phone: text(credentials, "phone"),
+          headline: text(credentials, "headline"),
+          skills: text(credentials, "skills"),
+          experience: text(credentials, "experience"),
+          resume: text(credentials, "resumeText").slice(0, 20_000),
           about: text(credentials, "about"),
           subject: text(credentials, "subject"),
           body: text(credentials, "body"),
@@ -39,12 +47,14 @@ export const profile: Toolkit = {
     }),
     defineAction({
       slug: "send_intro",
-      description: "Send the saved note to one email address through the connected Gmail account. Pass subject or body to override the saved text for this send only.",
+      description: "Send the saved note to one email address through the connected Gmail account. Pass subject or body to override the saved text for this send only. Pass gmailAccount when more than one Gmail account is connected.",
       risk: "write",
+      confirm: true,
       input: z.object({
         to: z.string().email(),
         subject: z.string().min(1).max(200).optional(),
         body: z.string().min(1).max(10_000).optional(),
+        gmailAccount: z.string().max(80).optional(),
       }),
       async run(args, _token, credentials) {
         const token = credentials?.gmailAccessToken;

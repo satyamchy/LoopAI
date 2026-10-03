@@ -18,11 +18,13 @@
     "drizzle-orm": "^0.38.3",
     "exceljs": "^4.4.0",
     "hono": "^4.6.14",
+    "nodemailer": "^7.0.6",
     "pdf-lib": "^1.17.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
+    "@types/nodemailer": "^6.4.17",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

@@ -6,7 +6,7 @@ export type ToolkitCard = {
   implemented: boolean;
   configured: boolean;
   setupEnv: string | null;
-  credentialFields: { key: string; label: string; optional?: boolean; secret?: boolean }[];
+  credentialFields: { key: string; label: string; optional?: boolean; secret?: boolean; long?: boolean }[];
   actions: { slug: string; description: string; risk?: string }[];
 };
 

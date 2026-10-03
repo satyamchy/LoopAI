@@ -33,12 +33,14 @@ export type OAuthConfig = {
  * `run` receives a bearer token for OAuth apps. API-key apps pass null so the
  * secret cannot be copied into the result by accident.
  */
-export type CredentialField = { key: string; label: string; optional?: boolean; secret?: boolean };
+export type CredentialField = { key: string; label: string; optional?: boolean; secret?: boolean; long?: boolean };
 
 export type ToolkitAction = {
   slug: string;
   description: string;
   risk: Risk;
+  /** External writes wait for a person to confirm. Notes do not. */
+  confirm?: boolean;
   parameters: Record<string, unknown>;
   /** Zod schema for MCP. Chat uses `parameters`. */
   schema: unknown;
