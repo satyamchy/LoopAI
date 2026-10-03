@@ -31,6 +31,7 @@ OAuth apps stay disabled until both client env vars are set in `apps/api/.env`. 
 | Notes | `src/notes.ts` | None | Nothing | `save`, `search` |
 | Manuscript | `src/manuscript.ts` | None | Nothing | `add_chapter`, `list_chapters`, `read_chapter`, `append` |
 | Canva | `src/canva.ts` | OAuth | `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET` | `create_design`, `import_manuscript`, `export_design` |
+| Review | `src/review.ts` | None | Nothing | `analyze` reads the saved profile, public GitHub, a personal site, and an optional LinkedIn note |
 
 Notion, HubSpot, and Linear are cards only. They have no file yet, so Connect stays disabled.
 

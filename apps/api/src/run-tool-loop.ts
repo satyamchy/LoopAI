@@ -8,6 +8,7 @@ const SYSTEM = [
   "When the user writes in Hindi, answer in Hindi.",
   "For a Patna High Court question, call patna-hc first. Then call hindi-render with sourceText from that result only.",
   "Use profile then Gmail when the user asks to email an intro. Use jobs.search for a role. Use notes or manuscript for saved text. Use Canva when the user asks for a design.",
+  "When the user asks to review their profile, GitHub, site, or wants a roadmap, call review.analyze, then write strengths, gaps, and a roadmap using only that result.",
   "Format the answer with short headings and lists. When a tool returns rows, show them as a Markdown table.",
 ].join(" ");
 

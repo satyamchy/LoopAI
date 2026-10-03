@@ -12,6 +12,7 @@ import { twitter } from "./twitter";
 import { canva } from "./canva";
 import { profile } from "./profile";
 import { jobs } from "./jobs";
+import { review } from "./review";
 import { patnaHc } from "./patna-hc";
 import { telegram } from "./telegram";
 
@@ -227,6 +228,38 @@ describe("new connectors", () => {
     }));
     const result = await executeToolkit(jobs, "search", { role: "backend" }, {});
     expect(result).toEqual({ jobs: [{ title: "Backend Engineer", company: "Acme", location: "Remote", url: "https://example.com/job" }] });
+    vi.unstubAllGlobals();
+  });
+
+  test("review returns GitHub and the page, and refuses a metadata host", async () => {
+    const token = "linkedin-token-value";
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const target = String(url);
+      if (target.includes("api.github.com/users/octocat/repos")) {
+        return Response.json([{ name: "hello", description: "A repo", language: "TypeScript", stargazers_count: 3 }]);
+      }
+      if (target.includes("api.github.com/users/octocat")) {
+        return Response.json({ login: "octocat", name: "Octo", bio: "Builder", public_repos: 4 });
+      }
+      if (target.includes("userinfo")) return Response.json({ name: "Ada", email: "ada@example.com" });
+      return new Response("<html><title>Site</title><body>I build tools.</body></html>", { status: 200 });
+    }));
+    const result = await executeToolkit(review, "analyze", {
+      goal: "backend role",
+      github: "octocat",
+      website: "https://example.com",
+      linkedinSummary: "Open to work.",
+    }, { profileName: "Satyam", profileAbout: "I build software.", profileEmail: "me@example.com", linkedinAccessToken: token });
+    expect(result).toMatchObject({
+      goal: "backend role",
+      profile: { name: "Satyam", about: "I build software.", email: "me@example.com" },
+      github: { login: "octocat", repos: [{ name: "hello", language: "TypeScript", stars: 3 }] },
+      website: { url: "https://example.com/", title: "Site" },
+      linkedin: { name: "Ada", summary: "Open to work." },
+    });
+    expect(JSON.stringify(result)).toContain("I build tools.");
+    expect(JSON.stringify(result)).not.toContain(token);
+    await expect(executeToolkit(review, "analyze", { goal: "backend role", website: "http://169.254.169.254/latest" }, {})).rejects.toThrow("That site is not allowed.");
     vi.unstubAllGlobals();
   });
 });

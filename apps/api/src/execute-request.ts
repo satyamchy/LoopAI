@@ -104,6 +104,29 @@ async function attachExtras(
     if (typeof gmailCredentials.access_token !== "string") return { http: 400, body: { error: "Reconnect Gmail." } };
     credentials.gmailAccessToken = gmailCredentials.access_token;
   }
+  if (toolkit.slug === "review" && input.action === "analyze") {
+    const accounts = await deps.store.listAccounts(input.workspaceId);
+    const profileRow = accounts.find((item) => item.toolkitSlug === "profile" && item.status === "active");
+    const savedRow = profileRow ? await deps.store.getAccount(profileRow.id) : null;
+    if (savedRow) {
+      const saved = (await deps.store.decrypt(savedRow.encryptedCredentials)) as Record<string, unknown>;
+      credentials.profileName = saved.fullName;
+      credentials.profileAbout = saved.about;
+      credentials.profileEmail = saved.email;
+    }
+    const linkedin = deps.toolkits.find((item) => item.slug === "linkedin");
+    const linked = accounts.filter((item) => item.toolkitSlug === "linkedin" && item.status === "active");
+    const linkedRow = linked[0] ? await deps.store.getAccount(linked[0].id) : null;
+    if (linkedin && linkedRow) {
+      try {
+        let linkedCredentials = (await deps.store.decrypt(linkedRow.encryptedCredentials)) as Record<string, unknown>;
+        linkedCredentials = await refreshIfNeeded(deps.store, linkedin, linkedRow.id, linkedCredentials);
+        if (typeof linkedCredentials.access_token === "string") credentials.linkedinAccessToken = linkedCredentials.access_token;
+      } catch {
+        // A dead LinkedIn token leaves that section missing. GitHub and the site still return.
+      }
+    }
+  }
   if (toolkit.slug === "canva" && input.action === "import_manuscript") {
     const chapters = await deps.store.listNotes(input.workspaceId, "chapter");
     if (chapters.length === 0) return { http: 400, body: { error: "Add a chapter before sending the book to Canva." } };

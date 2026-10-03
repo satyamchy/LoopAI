@@ -494,6 +494,7 @@ These objects are `arguments` inside `POST /v1/tools/execute`. Omitted optional 
 | `canva` | `create_design` | `{ "title": "Cover", "preset": "doc" }`. `preset` is `doc` or `presentation`. Optional `width` and `height`. |
 | `canva` | `import_manuscript` | `{ "title": "My book" }`. Title is optional. Needs saved chapters. |
 | `canva` | `export_design` | `{ "designId": "DAF..." }`. Returns Canva download URLs that expire in 24 hours. |
+| `review` | `analyze` | `{ "goal": "backend role", "github": "octocat", "website": "https://example.com", "linkedinSummary": "Optional paste" }`. `github`, `website`, and `linkedinSummary` are optional. Public GitHub and the site only. Does not scrape LinkedIn. |
 
 `hindi-render` / `case` quotes only values that already appear inside `sourceText`:
 

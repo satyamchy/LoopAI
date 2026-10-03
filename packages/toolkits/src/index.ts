@@ -24,6 +24,7 @@ import { jobs } from "./jobs";
 import { notes } from "./notes";
 import { manuscript } from "./manuscript";
 import { canva } from "./canva";
+import { review } from "./review";
 
 /**
  * Registry. To add a tool: create a file, export a Toolkit, and append it here.
@@ -55,6 +56,7 @@ export const toolkits: Toolkit[] = [
   notes,
   manuscript,
   canva,
+  review,
 ];
 
 export function findToolkit(slug: string): Toolkit | null {
